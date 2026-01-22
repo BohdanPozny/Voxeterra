@@ -1,3 +1,19 @@
+# Build folders
+build/
+cmake-build-debug/
+
+# Executables
+Voxeterra
+*.exe
+*.o
+*.a
+*.so
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+
 CMakeLists.txt.user
 CMakeCache.txt
 CMakeFiles
