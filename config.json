@@ -1,0 +1,23 @@
+{
+  "audio": {
+    "masterVolume": 1.0,
+    "musicVolume": 0.699999988079071,
+    "sfxVolume": 0.800000011920929
+  },
+  "controls": {
+    "mouseSensitivity": 0.10000000149011612,
+    "movementSpeed": 10.0
+  },
+  "graphics": {
+    "fov": 70.0,
+    "fullscreen": false,
+    "renderDistance": 8,
+    "vsync": true,
+    "windowHeight": 600,
+    "windowWidth": 800
+  },
+  "ui": {
+    "font": "fonts/default.ttf",
+    "fontSize": 16
+  }
+}
