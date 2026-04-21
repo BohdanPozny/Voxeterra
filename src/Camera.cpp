@@ -8,7 +8,7 @@ Camera::Camera(glm::vec3 position, glm::vec3 up, float yaw, float pitch)
     , m_fov(45.0f)
     , m_aspectRatio(16.0f / 9.0f)
     , m_nearPlane(0.1f)
-    , m_farPlane(1000.0f)
+    , m_farPlane(4000.0f)
 {
     updateCameraVectors();
 }
@@ -33,7 +33,7 @@ glm::mat4 Camera::getProjectionMatrix() const {
 }
 
 void Camera::processKeyboard(int direction, float deltaTime) {
-    float velocity = 10.0f * deltaTime;
+    float velocity = 40.0f * deltaTime;
     
     // 0=Forward, 1=Backward, 2=Left, 3=Right, 4=Up, 5=Down
     if (direction == 0) {
@@ -64,7 +64,7 @@ void Camera::processMouseMovement(float xoffset, float yoffset) {
     m_yaw += xoffset;
     m_pitch += yoffset;
 
-    // Обмеження pitch
+    // Clamp pitch to avoid gimbal flip.
     if (m_pitch > 89.0f)
         m_pitch = 89.0f;
     if (m_pitch < -89.0f)

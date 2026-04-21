@@ -21,16 +21,11 @@ bool Pipeline::init(VkDevice device,
                     const std::string& fragShaderPath) noexcept {
     m_deviceHandle = device;
 
-    // Завантаження шейдерів
+    // Load shader modules.
     Shader vertShader, fragShader;
-    if (!vertShader.loadFromFile(device, vertShaderPath)) {
-        return false;
-    }
-    if (!fragShader.loadFromFile(device, fragShaderPath)) {
-        return false;
-    }
+    if (!vertShader.loadFromFile(device, vertShaderPath)) return false;
+    if (!fragShader.loadFromFile(device, fragShaderPath)) return false;
 
-    // Shader stages
     VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     vertShaderStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -45,7 +40,7 @@ bool Pipeline::init(VkDevice device,
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
-    // Vertex input (поки порожній, бо трикутник hardcoded у шейдері)
+    // No vertex input: geometry is baked into the shader (hard-coded triangle).
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertexInputInfo.vertexBindingDescriptionCount = 0;
@@ -59,7 +54,7 @@ bool Pipeline::init(VkDevice device,
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-    // Viewport та Scissor
+    // Viewport / scissor are ignored in favor of dynamic state below.
     VkViewport viewport{};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
@@ -90,7 +85,7 @@ bool Pipeline::init(VkDevice device,
     rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
-    // Multisampling (вимкнено)
+    // Multisampling disabled.
     VkPipelineMultisampleStateCreateInfo multisampling{};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.sampleShadingEnable = VK_FALSE;
@@ -108,7 +103,7 @@ bool Pipeline::init(VkDevice device,
     colorBlending.attachmentCount = 1;
     colorBlending.pAttachments = &colorBlendAttachment;
 
-    // Pipeline Layout (поки порожній)
+    // Empty pipeline layout (no descriptor sets / push constants).
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 0;
@@ -119,7 +114,7 @@ bool Pipeline::init(VkDevice device,
         return false;
     }
 
-    // Створення Graphics Pipeline
+    // Build the graphics pipeline.
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.stageCount = 2;
@@ -131,7 +126,12 @@ bool Pipeline::init(VkDevice device,
     pipelineInfo.pMultisampleState = &multisampling;
     pipelineInfo.pDepthStencilState = nullptr;
     pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.pDynamicState = nullptr;
+    VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = 2;
+    dynamicState.pDynamicStates = dynStates;
+    pipelineInfo.pDynamicState = &dynamicState;
     pipelineInfo.layout = m_pipelineLayout;
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
@@ -151,12 +151,12 @@ bool Pipeline::initWithVertexInput(VkDevice device,
                                     VkExtent2D swapchainExtent,
                                     const std::string& vertShaderPath,
                                     const std::string& fragShaderPath,
-                                    VkDescriptorSetLayout descriptorSetLayout) noexcept {
+                                    VkDescriptorSetLayout descriptorSetLayout,
+                                    bool enableAlphaBlending,
+                                    bool enableDepthWrite) noexcept {
     m_deviceHandle = device;
     
-    std::cout << "[Pipeline] Loading shaders..." << std::endl;
-
-    // Завантаження шейдерів
+    // Load shader modules.
     Shader vertShader, fragShader;
     if (!vertShader.loadFromFile(device, vertShaderPath)) {
         std::cerr << "[Pipeline] Failed to load vertex shader" << std::endl;
@@ -166,8 +166,6 @@ bool Pipeline::initWithVertexInput(VkDevice device,
         std::cerr << "[Pipeline] Failed to load fragment shader" << std::endl;
         return false;
     }
-    
-    std::cout << "[Pipeline] Shaders loaded, creating pipeline..." << std::endl;
 
     // Shader stages
     VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
@@ -184,37 +182,31 @@ bool Pipeline::initWithVertexInput(VkDevice device,
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
-    // Vertex input для VoxelVertex
+    // Vertex input layout for VoxelVertex (36 bytes: position + normal + color).
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
-    bindingDescription.stride = sizeof(float) * 3 + sizeof(float) * 3 + sizeof(float) * 2 + sizeof(uint32_t);  // position + normal + texCoord + voxelType
+    bindingDescription.stride = sizeof(float) * 9;
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 4> attributeDescriptions{};
-    
+    std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
+
     // Position
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
     attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[0].offset = 0;
-    
+
     // Normal
     attributeDescriptions[1].binding = 0;
     attributeDescriptions[1].location = 1;
     attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[1].offset = sizeof(float) * 3;
-    
-    // TexCoord
+
+    // Color
     attributeDescriptions[2].binding = 0;
     attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = VK_FORMAT_R32G32_SFLOAT;
+    attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
     attributeDescriptions[2].offset = sizeof(float) * 6;
-    
-    // VoxelType
-    attributeDescriptions[3].binding = 0;
-    attributeDescriptions[3].location = 3;
-    attributeDescriptions[3].format = VK_FORMAT_R32_UINT;
-    attributeDescriptions[3].offset = sizeof(float) * 8;
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -229,7 +221,7 @@ bool Pipeline::initWithVertexInput(VkDevice device,
     inputAssembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
     inputAssembly.primitiveRestartEnable = VK_FALSE;
 
-    // Viewport та Scissor
+    // Viewport / scissor are ignored in favor of dynamic state below.
     VkViewport viewport{};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
@@ -256,7 +248,7 @@ bool Pipeline::initWithVertexInput(VkDevice device,
     rasterizer.rasterizerDiscardEnable = VK_FALSE;
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_NONE;  // Вимкнено для воксельного рендерингу
+    rasterizer.cullMode = VK_CULL_MODE_NONE;  // Culling disabled for voxel meshes.
     rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
 
@@ -270,16 +262,26 @@ bool Pipeline::initWithVertexInput(VkDevice device,
     VkPipelineDepthStencilStateCreateInfo depthStencil{};
     depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
     depthStencil.depthTestEnable = VK_TRUE;
-    depthStencil.depthWriteEnable = VK_TRUE;
+    depthStencil.depthWriteEnable = enableDepthWrite ? VK_TRUE : VK_FALSE;
     depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
     depthStencil.depthBoundsTestEnable = VK_FALSE;
     depthStencil.stencilTestEnable = VK_FALSE;
 
     // Color blending
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | 
+    colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
                                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    colorBlendAttachment.blendEnable = VK_FALSE;
+    if (enableAlphaBlending) {
+        colorBlendAttachment.blendEnable = VK_TRUE;
+        colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+        colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+        colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    } else {
+        colorBlendAttachment.blendEnable = VK_FALSE;
+    }
 
     VkPipelineColorBlendStateCreateInfo colorBlending{};
     colorBlending.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -303,7 +305,7 @@ bool Pipeline::initWithVertexInput(VkDevice device,
         return false;
     }
 
-    // Створення Graphics Pipeline
+    // Build the graphics pipeline.
     VkGraphicsPipelineCreateInfo pipelineInfo{};
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.stageCount = 2;
@@ -315,7 +317,12 @@ bool Pipeline::initWithVertexInput(VkDevice device,
     pipelineInfo.pMultisampleState = &multisampling;
     pipelineInfo.pDepthStencilState = &depthStencil;
     pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.pDynamicState = nullptr;
+    VkDynamicState dynStatesVox[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicStateVox{};
+    dynamicStateVox.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicStateVox.dynamicStateCount = 2;
+    dynamicStateVox.pDynamicStates = dynStatesVox;
+    pipelineInfo.pDynamicState = &dynamicStateVox;
     pipelineInfo.layout = m_pipelineLayout;
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;

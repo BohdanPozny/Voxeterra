@@ -1,5 +1,5 @@
 #define STB_TRUETYPE_IMPLEMENTATION
-#include "stb_truetype.h"
+#include "utils/stb_truetype.h"
 #include "Vulkan/TextRenderer.hpp"
 #include "Vulkan/Device.hpp"
 #include <fstream>
@@ -16,7 +16,7 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     m_devicePtr = &device;
     m_fontSize = fontSize;
     
-    // Завантажуємо TTF файл
+    // Load the TTF file into memory.
     std::ifstream file(fontPath, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
         std::cerr << "[TextRenderer] Failed to open font: " << fontPath << std::endl;
@@ -30,20 +30,20 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     file.read(reinterpret_cast<char*>(fontBuffer.data()), fileSize);
     file.close();
     
-    // Ініціалізуємо stb_truetype
+    // Initialise stb_truetype with the font blob.
     stbtt_fontinfo font;
     if (!stbtt_InitFont(&font, fontBuffer.data(), 0)) {
         std::cerr << "[TextRenderer] Failed to init font" << std::endl;
         return false;
     }
     
-    // Генеруємо bitmap для ASCII символів (32-126)
+    // Rasterise printable ASCII glyphs (32..126).
     float scale = stbtt_ScaleForPixelHeight(&font, static_cast<float>(fontSize));
     
     int ascent, descent, lineGap;
     stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
     
-    // Створюємо текстурний атлас 512x512
+    // Single 512x512 atlas is plenty for the ASCII range.
     const int atlasWidth = 512;
     const int atlasHeight = 512;
     std::vector<unsigned char> atlasData(atlasWidth * atlasHeight, 0);
@@ -56,14 +56,14 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
         unsigned char* bitmap = stbtt_GetCodepointBitmap(&font, 0, scale, c, &width, &height, &xoff, &yoff);
         
         if (bitmap) {
-            // Перевіряємо чи вміщується символ в поточний рядок
+            // Move to a new row if the glyph overflows the current one.
             if (penX + width >= atlasWidth) {
                 penX = 0;
                 penY += rowHeight + 1;
                 rowHeight = 0;
             }
             
-            // Копіюємо bitmap в атлас
+            // Blit glyph bitmap into the atlas.
             for (int y = 0; y < height; ++y) {
                 for (int x = 0; x < width; ++x) {
                     int atlasIdx = (penY + y) * atlasWidth + (penX + x);
@@ -81,7 +81,7 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
             stbtt_GetCodepointHMetrics(&font, c, &advance, &leftBearing);
             ch.advance = advance * scale;
             
-            // UV координати в атласі
+            // UVs for the four corners.
             ch.texCoords[0] = glm::vec2(float(penX) / atlasWidth, float(penY) / atlasHeight);  // top-left
             ch.texCoords[1] = glm::vec2(float(penX + width) / atlasWidth, float(penY) / atlasHeight);  // top-right
             ch.texCoords[2] = glm::vec2(float(penX + width) / atlasWidth, float(penY + height) / atlasHeight);  // bottom-right
@@ -93,13 +93,23 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
             rowHeight = std::max(rowHeight, height);
             
             stbtt_FreeBitmap(bitmap, nullptr);
+        } else {
+            // Glyphs without a bitmap (e.g. space) still need an advance value.
+            Character ch{};
+            ch.size = glm::vec2(0.0f);
+            ch.bearing = glm::vec2(0.0f);
+            int advance = 0, leftBearing = 0;
+            stbtt_GetCodepointHMetrics(&font, c, &advance, &leftBearing);
+            ch.advance = advance * scale;
+            ch.texCoords[0] = ch.texCoords[1] = ch.texCoords[2] = ch.texCoords[3] = glm::vec2(0.0f);
+            m_characters[c] = ch;
         }
     }
     
     std::cout << "[TextRenderer] Loaded font: " << fontPath << " (" << m_characters.size() << " chars)" << std::endl;
     std::cout << "[TextRenderer] Created font atlas: " << atlasWidth << "x" << atlasHeight << std::endl;
     
-    // Створюємо Vulkan текстуру з atlasData
+    // Create a single-channel Vulkan image initialised with atlasData.
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -108,8 +118,8 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     imageInfo.extent.depth = 1;
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
-    imageInfo.format = VK_FORMAT_R8_UNORM;  // 1 канал (grayscale)
-    imageInfo.tiling = VK_IMAGE_TILING_LINEAR;  // Спрощена версія
+    imageInfo.format = VK_FORMAT_R8_UNORM;   // single-channel (alpha coverage)
+    imageInfo.tiling = VK_IMAGE_TILING_LINEAR;  // linear tiling avoids staging buffer
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
     imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -120,11 +130,11 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
         return false;
     }
     
-    // Виділяємо пам'ять для текстури
+    // Query the driver for the image's memory requirements.
     VkMemoryRequirements memRequirements;
     vkGetImageMemoryRequirements(m_device, m_fontTexture, &memRequirements);
-    
-    // Знаходимо правильний memory type
+
+    // Allocate host-visible memory since we upload directly (no staging).
     VkPhysicalDeviceMemoryProperties memProperties;
     vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProperties);
     
@@ -158,13 +168,13 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     
     vkBindImageMemory(m_device, m_fontTexture, m_fontMemory, 0);
     
-    // Копіюємо дані в текстуру (спрощена версія - треба staging buffer)
+    // Upload glyph pixels directly. A staging buffer would be preferable for GPU-local memory.
     void* data;
     vkMapMemory(m_device, m_fontMemory, 0, memRequirements.size, 0, &data);
     memcpy(data, atlasData.data(), atlasData.size());
     vkUnmapMemory(m_device, m_fontMemory);
     
-    // Створюємо image view
+    // Image view used when binding the sampler.
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = m_fontTexture;
@@ -181,7 +191,7 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
         return false;
     }
     
-    // Створюємо sampler
+    // Linear filtering sampler clamped to atlas edges.
     VkSamplerCreateInfo samplerInfo{};
     samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
     samplerInfo.magFilter = VK_FILTER_LINEAR;
@@ -233,9 +243,7 @@ void TextRenderer::renderText(const std::string& text, glm::vec2 position, float
     float y = position.y;
     
     for (char c : text) {
-        if (m_characters.find(c) == m_characters.end()) {
-            continue;  // Символ не знайдено
-        }
+        if (m_characters.find(c) == m_characters.end()) continue;
         
         Character& ch = m_characters[c];
         
@@ -244,22 +252,31 @@ void TextRenderer::renderText(const std::string& text, glm::vec2 position, float
         float w = ch.size.x * scale;
         float h = ch.size.y * scale;
         
-        // Створюємо quad для символу з UV координатами з атласу
-        glm::vec2 uv0 = ch.texCoords[0];  // top-left
-        glm::vec2 uv1 = ch.texCoords[1];  // top-right
-        glm::vec2 uv2 = ch.texCoords[2];  // bottom-right
-        glm::vec2 uv3 = ch.texCoords[3];  // bottom-left
-        
-        // Трикутник 1
-        outVertices.push_back({glm::vec2(xpos, ypos), color, uv0});
-        outVertices.push_back({glm::vec2(xpos + w, ypos), color, uv1});
+        // Emit a quad as two CCW triangles (atlas UVs: tl, tr, br, bl).
+        const glm::vec2 uv0 = ch.texCoords[0];
+        const glm::vec2 uv1 = ch.texCoords[1];
+        const glm::vec2 uv2 = ch.texCoords[2];
+        const glm::vec2 uv3 = ch.texCoords[3];
+
+        outVertices.push_back({glm::vec2(xpos,     ypos),     color, uv0});
+        outVertices.push_back({glm::vec2(xpos + w, ypos),     color, uv1});
         outVertices.push_back({glm::vec2(xpos + w, ypos + h), color, uv2});
-        
-        // Трикутник 2
-        outVertices.push_back({glm::vec2(xpos, ypos), color, uv0});
+
+        outVertices.push_back({glm::vec2(xpos,     ypos),     color, uv0});
         outVertices.push_back({glm::vec2(xpos + w, ypos + h), color, uv2});
-        outVertices.push_back({glm::vec2(xpos, ypos + h), color, uv3});
+        outVertices.push_back({glm::vec2(xpos,     ypos + h), color, uv3});
         
         x += ch.advance * scale;
     }
+}
+
+float TextRenderer::measureTextWidth(const std::string& text, float scale) const {
+    float width = 0.0f;
+    for (char c : text) {
+        auto it = m_characters.find(c);
+        if (it != m_characters.end()) {
+            width += it->second.advance * scale;
+        }
+    }
+    return width;
 }

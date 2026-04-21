@@ -1,5 +1,5 @@
 #include "Config.hpp"
-#include "json.hpp"
+#include "utils/json.hpp"
 #include <fstream>
 #include <iostream>
 
@@ -46,7 +46,6 @@ bool Config::load() {
             if (audio.contains("sfxVolume")) m_sfxVolume = audio["sfxVolume"];
         }
         
-        file.close();
         std::cout << "[Config] Loaded from: " << m_configPath << std::endl;
         return true;
     }
@@ -84,9 +83,7 @@ bool Config::save() {
             return false;
         }
         
-        file << j.dump(2);  // 2 spaces indentation
-        file.close();
-        
+        file << j.dump(2);
         std::cout << "[Config] Saved to: " << m_configPath << std::endl;
         return true;
     }

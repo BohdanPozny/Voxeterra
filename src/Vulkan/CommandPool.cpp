@@ -3,7 +3,7 @@
 
 CommandPool::~CommandPool() noexcept {
     if (m_deviceHandle != VK_NULL_HANDLE && m_commandPool != VK_NULL_HANDLE) {
-        // Command buffers автоматично звільняються при знищенні pool
+        // Destroying the pool also frees its command buffers.
         vkDestroyCommandPool(m_deviceHandle, m_commandPool, nullptr);
     }
 }

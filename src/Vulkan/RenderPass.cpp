@@ -48,7 +48,7 @@ bool RenderPass::init(VkDevice device, VkFormat swapchainImageFormat) noexcept {
     subpass.pColorAttachments = &colorAttachmentRef;
     subpass.pDepthStencilAttachment = &depthAttachmentRef;
 
-    // Subpass dependency для синхронізації (color + depth)
+    // External -> subpass dependency covering both color and depth writes.
     VkSubpassDependency dependency{};
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
@@ -57,7 +57,7 @@ bool RenderPass::init(VkDevice device, VkFormat swapchainImageFormat) noexcept {
     dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
     dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
-    // Створення Render Pass
+    // Create the render pass object.
     VkAttachmentDescription attachments[] = {colorAttachment, depthAttachment};
     
     VkRenderPassCreateInfo renderPassInfo{};

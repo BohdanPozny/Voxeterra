@@ -3,15 +3,22 @@
 #include <iostream>
 
 DepthBuffer::~DepthBuffer() noexcept {
+    cleanup();
+}
+
+void DepthBuffer::cleanup() noexcept {
     if (m_deviceHandle != VK_NULL_HANDLE) {
         if (m_depthImageView != VK_NULL_HANDLE) {
             vkDestroyImageView(m_deviceHandle, m_depthImageView, nullptr);
+            m_depthImageView = VK_NULL_HANDLE;
         }
         if (m_depthImage != VK_NULL_HANDLE) {
             vkDestroyImage(m_deviceHandle, m_depthImage, nullptr);
+            m_depthImage = VK_NULL_HANDLE;
         }
         if (m_depthImageMemory != VK_NULL_HANDLE) {
             vkFreeMemory(m_deviceHandle, m_depthImageMemory, nullptr);
+            m_depthImageMemory = VK_NULL_HANDLE;
         }
     }
 }
@@ -40,7 +47,7 @@ bool DepthBuffer::init(Device& device, VkExtent2D extent) noexcept {
 
     VkFormat depthFormat = findDepthFormat();
 
-    // Створення depth image
+    // Depth image (used as depth-stencil attachment).
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -61,7 +68,7 @@ bool DepthBuffer::init(Device& device, VkExtent2D extent) noexcept {
         return false;
     }
 
-    // Виділення пам'яті
+    // Allocate device-local memory.
     VkMemoryRequirements memRequirements;
     vkGetImageMemoryRequirements(m_deviceHandle, m_depthImage, &memRequirements);
 
@@ -78,7 +85,7 @@ bool DepthBuffer::init(Device& device, VkExtent2D extent) noexcept {
 
     vkBindImageMemory(m_deviceHandle, m_depthImage, m_depthImageMemory, 0);
 
-    // Створення image view
+    // View used in the render pass attachment.
     VkImageViewCreateInfo viewInfo{};
     viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     viewInfo.image = m_depthImage;

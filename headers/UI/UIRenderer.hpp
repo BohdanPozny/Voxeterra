@@ -11,36 +11,38 @@
 class Device;
 class RenderPass;
 
-// UIRenderer - рендеринг UI елементів через Vulkan
+// Batches the UI widget tree into a single Vulkan draw call.
 class UIRenderer {
 private:
     VkDevice m_device = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
-    Device* m_devicePtr = nullptr;  // Для створення Buffer
-    
-    // 2D Pipeline для рендерингу
-    std::unique_ptr<Pipeline2D> m_pipeline2D;
-    
-    // Text renderer для TTF шрифтів
+    Device* m_devicePtr = nullptr;  // used when creating the growing vertex buffer.
+
+    std::unique_ptr<Pipeline2D>  m_pipeline2D;
     std::unique_ptr<TextRenderer> m_textRenderer;
-    bool m_useTextRenderer = false;  // Чи використовувати TTF (якщо шрифт завантажено)
-    
-    // Vertex buffer для UI quad
+    bool m_useTextRenderer = false;
+
     struct UIVertex {
-        glm::vec2 position;  // Screen space (-1 to 1)
+        glm::vec2 position;  // NDC
         glm::vec4 color;
-        glm::vec2 texCoord;  // Текстурні координати (0-1)
+        glm::vec2 texCoord;  // (0,0) means "no texture" for the shader
     };
     
     std::vector<UIVertex> m_vertices;
     std::vector<uint32_t> m_indices;
     
-    // Persistent vertex buffer (використовуємо Buffer клас)
+    // Persistent, growable vertex buffer.
     std::unique_ptr<class Buffer> m_vertexBuffer;
     size_t m_vertexBufferSize = 0;
     
     VkExtent2D m_screenExtent;
-    
+
+    // Descriptor set holding the font atlas; required by the 2D pipeline layout.
+    VkDescriptorPool m_descriptorPool = VK_NULL_HANDLE;
+    VkDescriptorSet m_fontDescriptorSet = VK_NULL_HANDLE;
+
+    bool createFontDescriptorSet();
+
     void collectUIElements(UIElement* element);
     uint32_t findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties);
 
@@ -51,17 +53,17 @@ public:
     bool init(Device& device, VkRenderPass renderPass, VkExtent2D screenExtent);
     void cleanup();
     
-    // Рендеринг UI елемента (рекурсивно з дочірніми)
+    // Draw one element and recurse into its children (legacy helper; prefer renderUI()).
     void renderElement(UIElement* element, VkCommandBuffer commandBuffer);
-    
-    // Рендеринг UI панелі (для MainMenu)
+
+    // Draw the entire widget tree rooted at rootElement.
     void renderUI(UIElement* rootElement, VkCommandBuffer commandBuffer);
-    
-    // Допоміжні методи для створення примітивів
+
+    // Low-level primitive helpers.
     void addQuad(const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color);
     void clearBatch();
     void flushBatch(VkCommandBuffer commandBuffer);
     
-    // Конвертація normalized координат (0-1) в screen space (-1 to 1)
+    // Convert normalised [0,1] coords to NDC [-1,1].
     glm::vec2 normalizedToScreen(const glm::vec2& normalized) const;
 };

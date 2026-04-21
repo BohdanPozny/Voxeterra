@@ -37,7 +37,7 @@ bool Buffer::init(Device& device,
     m_physicalDevice = device.getPhysicalDevice();
     m_size = size;
 
-    // Створення buffer
+    // Create buffer handle.
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     bufferInfo.size = size;
@@ -49,7 +49,7 @@ bool Buffer::init(Device& device,
         return false;
     }
 
-    // Виділення пам'яті
+    // Allocate and bind device memory.
     VkMemoryRequirements memRequirements;
     vkGetBufferMemoryRequirements(m_deviceHandle, m_buffer, &memRequirements);
 

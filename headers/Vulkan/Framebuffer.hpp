@@ -21,6 +21,8 @@ public:
               VkImageView depthImageView,
               VkExtent2D swapchainExtent) noexcept;
 
+    void cleanup() noexcept;
+
     const std::vector<VkFramebuffer>& getFramebuffers() const noexcept { return m_framebuffers; }
     VkFramebuffer getFramebuffer(size_t index) const noexcept { return m_framebuffers[index]; }
 };

@@ -11,10 +11,10 @@
   "graphics": {
     "fov": 70.0,
     "fullscreen": false,
-    "renderDistance": 8,
+    "renderDistance": 32,
     "vsync": true,
-    "windowHeight": 600,
-    "windowWidth": 800
+    "windowHeight": 900,
+    "windowWidth": 1600
   },
   "ui": {
     "font": "fonts/default.ttf",

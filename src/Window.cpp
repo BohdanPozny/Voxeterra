@@ -3,8 +3,7 @@
 #include <iostream>
 
 Window::~Window() noexcept {
-    // m_window автоматично знищується через unique_ptr
-    // glfwTerminate викликається останнім
+    // unique_ptr destroys the GLFWwindow; terminate the library last.
     glfwTerminate();
 }
 
@@ -13,32 +12,24 @@ bool Window::init(int w, int h, std::string name) noexcept {
     height = h;
     nameWindow = name;
 
-    // Ініціалізуємо GLFW тільки якщо ще не ініціалізований
     if (!glfwInit()) {
-        std::cout << "[Error Window] Not init GLFW" << std::endl;
-        return false; 
+        std::cerr << "[Window] glfwInit failed" << std::endl;
+        return false;
     }
 
-    //settings window
+    // Disable the OpenGL context creation; resizable for tiling WMs / dev ergonomics.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);  // Дозволяємо resize для Wayland tiling
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
     m_window.reset(glfwCreateWindow(width, height, nameWindow.c_str(), nullptr, nullptr));
-    if (m_window.get() == nullptr) {
-        std::cout << "[Error window] Not create window" << std::endl;
-        return false; 
+    if (!m_window) {
+        std::cerr << "[Window] glfwCreateWindow failed" << std::endl;
+        return false;
     }
-    
-    // Логування початкового розміру вікна
-    int actualWidth, actualHeight;
-    glfwGetWindowSize(m_window.get(), &actualWidth, &actualHeight);
-    std::cout << "[Window] Requested: " << width << "x" << height 
-              << ", Actual: " << actualWidth << "x" << actualHeight << std::endl;
-    
-    int fbWidth, fbHeight;
-    glfwGetFramebufferSize(m_window.get(), &fbWidth, &fbHeight);
-    std::cout << "[Window] Framebuffer: " << fbWidth << "x" << fbHeight << std::endl;
 
+    // Framebuffer resize callback sets the dirty flag consumed by the engine.
+    glfwSetWindowUserPointer(m_window.get(), this);
+    glfwSetFramebufferSizeCallback(m_window.get(), framebufferResizeCallback);
     return true;
 }
 
@@ -46,10 +37,10 @@ bool Window::shouldClose() noexcept {
     return glfwWindowShouldClose(m_window.get());
 }
 
-bool Window::createWindowSurface(VkInstance m_instance, VkSurfaceKHR* surface) const noexcept {
-    VkResult result = glfwCreateWindowSurface(m_instance, m_window.get(), nullptr, surface);
+bool Window::createWindowSurface(VkInstance instance, VkSurfaceKHR* surface) const noexcept {
+    VkResult result = glfwCreateWindowSurface(instance, m_window.get(), nullptr, surface);
     if (result != VK_SUCCESS) {
-        std::cout << "[Error Window] Not create window surface. \nError code: " << result << std::endl;
+        std::cerr << "[Window] glfwCreateWindowSurface failed (code " << result << ")" << std::endl;
         return false;
     }
     return true;
@@ -57,5 +48,12 @@ bool Window::createWindowSurface(VkInstance m_instance, VkSurfaceKHR* surface) c
 
 void Window::getFramebufferSize(int* w, int* h) const {
     glfwGetFramebufferSize(m_window.get(), w, h);
+}
+
+void Window::framebufferResizeCallback(GLFWwindow* window, int /*width*/, int /*height*/) {
+    auto* self = static_cast<Window*>(glfwGetWindowUserPointer(window));
+    if (self) {
+        self->m_framebufferResized = true;
+    }
 }
 

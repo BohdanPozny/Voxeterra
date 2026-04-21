@@ -19,7 +19,7 @@ void StateManager::changeState(GameState newState) {
 void StateManager::update(float deltaTime) {
     static bool firstUpdate = true;
     
-    // При першому update викликаємо onEnter для початкового стану
+    // Fire onEnter for the initial state on the first update.
     if (firstUpdate) {
         if (m_states.find(m_currentState) != m_states.end()) {
             m_states[m_currentState]->onEnter();
@@ -27,7 +27,7 @@ void StateManager::update(float deltaTime) {
         firstUpdate = false;
     }
     
-    // Перевіряємо чи потрібно змінити стан
+    // Handle pending state transition requested last frame.
     if (m_shouldChangeState) {
         if (m_states.find(m_currentState) != m_states.end()) {
             m_states[m_currentState]->onExit();
@@ -42,11 +42,11 @@ void StateManager::update(float deltaTime) {
         m_shouldChangeState = false;
     }
     
-    // Оновлюємо поточний стан
+    // Drive the active state.
     if (m_states.find(m_currentState) != m_states.end()) {
         m_states[m_currentState]->update(deltaTime);
         
-        // Перевіряємо чи стан хоче змінитися
+        // State may request a transition mid-update.
         if (m_states[m_currentState]->shouldChangeState()) {
             changeState(m_states[m_currentState]->getNextState());
         }

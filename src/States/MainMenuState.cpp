@@ -8,21 +8,21 @@ MainMenuState::MainMenuState(Engine* engine)
 }
 
 void MainMenuState::createUI() {
-    // Створюємо панель меню (невидима - тільки контейнер)
+    // Transparent root panel used as the widget container.
     m_menuPanel = std::make_unique<UIPanel>(
         glm::vec2(0.0f, 0.0f),
         glm::vec2(1.0f, 1.0f),
-        glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)  // Прозора
+        glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)
     );
-    
-    // Кнопка "New Game" - маленька, по центру вгорі
+
+    // "New Game" button (centred, upper half).
     auto newGameBtn = std::make_unique<UIButton>(
-        glm::vec2(0.4f, 0.4f),   // Центр по X, трохи вище центру
-        glm::vec2(0.2f, 0.08f),  // Ширина 20%, висота 8%
+        glm::vec2(0.3f, 0.38f),
+        glm::vec2(0.4f, 0.12f),
         "New Game",
-        glm::vec4(0.2f, 0.8f, 0.2f, 1.0f),  // Яскраво-зелений
-        glm::vec4(0.3f, 1.0f, 0.3f, 1.0f),  // Світліший при hover
-        glm::vec4(0.1f, 0.6f, 0.1f, 1.0f)   // Темніший при press
+        glm::vec4(0.2f, 0.8f, 0.2f, 1.0f),  // normal
+        glm::vec4(0.3f, 1.0f, 0.3f, 1.0f),  // hover
+        glm::vec4(0.1f, 0.6f, 0.1f, 1.0f)   // pressed
     );
     newGameBtn->setOnClick([this]() {
         std::cout << "[UI] New Game clicked! Starting game..." << std::endl;
@@ -32,12 +32,12 @@ void MainMenuState::createUI() {
     m_newGameButton = newGameBtn.get();
     m_menuPanel->addChild(std::move(newGameBtn));
     
-    // Кнопка "Exit" - маленька, по центру внизу
+    // "Exit" button (centred, lower half).
     auto exitBtn = std::make_unique<UIButton>(
-        glm::vec2(0.4f, 0.52f),  // Центр по X, трохи нижче
-        glm::vec2(0.2f, 0.08f),  // Така ж ширина і висота
+        glm::vec2(0.3f, 0.54f),
+        glm::vec2(0.4f, 0.12f),
         "Exit",
-        glm::vec4(0.8f, 0.2f, 0.2f, 1.0f),  // Яскраво-червоний
+        glm::vec4(0.8f, 0.2f, 0.2f, 1.0f),  // normal
         glm::vec4(1.0f, 0.3f, 0.3f, 1.0f),
         glm::vec4(0.6f, 0.1f, 0.1f, 1.0f)
     );
@@ -61,7 +61,7 @@ void MainMenuState::onEnter() {
     std::cout << "  - Upper area = NEW GAME (green)" << std::endl;
     std::cout << "  - Lower area = EXIT (red)" << std::endl;
     
-    // Показати курсор для кліків
+    // Menu needs a visible cursor for button clicks.
     if (m_engine && m_engine->getWindow().getWindow()) {
         glfwSetInputMode(m_engine->getWindow().getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
         glfwSetWindowTitle(m_engine->getWindow().getWindow(), "Voxterra - MAIN MENU (Click center: top=Play, bottom=Exit)");
@@ -79,36 +79,20 @@ void MainMenuState::update(float deltaTime) {
 }
 
 void MainMenuState::render() {
-    // Рендеримо UI панель з кнопками
-    if (m_menuPanel && m_engine) {
-        // TODO: Інтегрувати з UIRenderer
-        // UI рендериться через callbacks
-    }
+    // Rendering is performed by Engine via UIRenderer::renderUI().
 }
 
 void MainMenuState::handleInput() {
     if (!m_engine || !m_menuPanel) return;
-    
-    GLFWwindow* window = m_engine->getWindow().getWindow();
-    
-    // Отримуємо позицію миші
-    double mouseX, mouseY;
-    glfwGetCursorPos(window, &mouseX, &mouseY);
-    
-    // Конвертуємо в normalized координати (0-1)
-    int width, height;
-    glfwGetWindowSize(window, &width, &height);
-    glm::vec2 normalizedMouse(
-        static_cast<float>(mouseX) / width,
-        static_cast<float>(mouseY) / height
-    );
-    
-    // Перевіряємо клік
-    static bool wasPressed = false;
-    bool isPressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-    
-    // Передаємо input в UI систему
-    m_menuPanel->handleInput(normalizedMouse, isPressed && !wasPressed);
-    
-    wasPressed = isPressed;
+
+    auto& input = m_engine->getInput();
+    glm::vec2 normalizedMouse = input.getNormalizedMousePosition();
+    bool justClicked = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
+
+    // Dispatch to the widget tree (edge-triggered click).
+    m_menuPanel->handleInput(normalizedMouse, justClicked);
+}
+
+UIElement* MainMenuState::getUIRoot() {
+    return m_menuPanel.get();
 }

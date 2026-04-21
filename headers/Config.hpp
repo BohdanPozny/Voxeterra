@@ -12,7 +12,7 @@ private:
     int m_windowHeight = 600;
     bool m_fullscreen = false;
     bool m_vsync = true;
-    int m_renderDistance = 8;  // в чанках
+    int m_renderDistance = 8;  // in chunks
     float m_fov = 70.0f;
     
     // Controls

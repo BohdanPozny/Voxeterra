@@ -27,7 +27,9 @@ public:
                              VkExtent2D swapchainExtent,
                              const std::string& vertShaderPath,
                              const std::string& fragShaderPath,
-                             VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE) noexcept;
+                             VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE,
+                             bool enableAlphaBlending = false,
+                             bool enableDepthWrite = true) noexcept;
 
     VkPipeline getPipeline() const noexcept { return m_pipeline; }
     VkPipelineLayout getLayout() const noexcept { return m_pipelineLayout; }

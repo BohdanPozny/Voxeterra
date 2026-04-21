@@ -3,13 +3,12 @@
 #include <vulkan/vulkan.h>
 #include <optional>
 #include <cstdint>
-#include <vulkan/vulkan_core.h>
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
     std::optional<uint32_t> presentFamily;
 
-    bool isComplete() {
+    bool isComplete() const {
         return graphicsFamily.has_value() && presentFamily.has_value();
     }
 };
@@ -26,7 +25,7 @@ private:
     
     bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface) const;
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) const;
-    bool pickPhysicalDevice(VkInstance m_instance, VkSurfaceKHR surface) noexcept;
+    bool pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface) noexcept;
 
 public:
     Device() = default;
@@ -35,7 +34,7 @@ public:
     Device(const Device&) = delete;
     Device& operator=(const Device&) = delete;
 
-    bool init(VkInstance m_instance, VkSurfaceKHR surface) noexcept;
+    bool init(VkInstance instance, VkSurfaceKHR surface) noexcept;
 
     VkDevice getLogicalDevice() noexcept { return m_device; }
     VkPhysicalDevice getPhysicalDevice() noexcept { return m_physicalDevice; }

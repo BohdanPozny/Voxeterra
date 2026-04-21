@@ -2,9 +2,15 @@
 #include <iostream>
 
 Framebuffer::~Framebuffer() noexcept {
+    cleanup();
+}
+
+void Framebuffer::cleanup() noexcept {
     if (m_deviceHandle != VK_NULL_HANDLE) {
         for (auto framebuffer : m_framebuffers) {
-            vkDestroyFramebuffer(m_deviceHandle, framebuffer, nullptr);
+            if (framebuffer != VK_NULL_HANDLE) {
+                vkDestroyFramebuffer(m_deviceHandle, framebuffer, nullptr);
+            }
         }
         m_framebuffers.clear();
     }

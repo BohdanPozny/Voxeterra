@@ -4,18 +4,17 @@
 #include <memory>
 #include <vector>
 
-// Базовий абстрактний клас для всіх UI елементів (ПОЛІМОРФІЗМ)
+// Abstract base for every UI widget.
 class UIElement {
 protected:
-    glm::vec2 m_position;      // Позиція на екрані (0-1, normalized)
-    glm::vec2 m_size;          // Розмір (0-1, normalized)
-    glm::vec4 m_color;         // Колір RGBA
+    glm::vec2 m_position;  // normalised screen coords [0,1]
+    glm::vec2 m_size;      // normalised size [0,1]
+    glm::vec4 m_color;     // background colour (RGBA)
     bool m_visible = true;
     bool m_enabled = true;
     bool m_hovered = false;
     bool m_focused = false;
     
-    // Ієрархія (композиція)
     UIElement* m_parent = nullptr;
     std::vector<std::unique_ptr<UIElement>> m_children;
 
@@ -25,12 +24,12 @@ public:
     
     virtual ~UIElement() = default;
     
-    // Віртуальні методи (ПОЛІМОРФІЗМ)
+    // Polymorphic interface:
     virtual void update(float deltaTime) = 0;
     virtual void render() = 0;
     virtual void handleInput(const glm::vec2& mousePos, bool mousePressed) = 0;
     
-    // Getters/Setters
+    // Accessors.
     void setPosition(const glm::vec2& pos) { m_position = pos; }
     void setSize(const glm::vec2& size) { m_size = size; }
     void setColor(const glm::vec4& color) { m_color = color; }
@@ -45,7 +44,7 @@ public:
     bool isHovered() const { return m_hovered; }
     bool isFocused() const { return m_focused; }
     
-    // Ієрархія
+    // Children own their subtree; parent pointer is non-owning.
     void addChild(std::unique_ptr<UIElement> child) {
         child->m_parent = this;
         m_children.push_back(std::move(child));
@@ -55,7 +54,7 @@ public:
         return m_children;
     }
     
-    // Перевірка чи точка всередині елемента
+    // Hit test in normalised screen coords.
     bool contains(const glm::vec2& point) const {
         return point.x >= m_position.x && point.x <= m_position.x + m_size.x &&
                point.y >= m_position.y && point.y <= m_position.y + m_size.y;

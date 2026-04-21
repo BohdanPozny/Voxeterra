@@ -9,14 +9,14 @@
 class Device;
 class Pipeline2D;
 
-// TextRenderer - рендеринг тексту через bitmap font
+// Glyph atlas built from a TTF font using stb_truetype; consumed by UIRenderer.
 class TextRenderer {
 public:
     struct Character {
-        glm::vec2 size;      // Розмір символу
-        glm::vec2 bearing;   // Offset від baseline
-        float advance;       // Відстань до наступного символу
-        glm::vec2 texCoords[4]; // UV координати в текстурі
+        glm::vec2 size;          // glyph size in pixels
+        glm::vec2 bearing;       // offset from the pen position
+        float     advance;       // horizontal advance to next glyph
+        glm::vec2 texCoords[4];  // atlas UVs (tl, tr, br, bl)
     };
 
 private:
@@ -26,7 +26,7 @@ private:
     
     std::unordered_map<char, Character> m_characters;
     
-    // Bitmap font texture (простий підхід - всі символи в одній текстурі)
+    // Single-channel atlas containing every glyph.
     VkImage m_fontTexture = VK_NULL_HANDLE;
     VkDeviceMemory m_fontMemory = VK_NULL_HANDLE;
     VkImageView m_fontImageView = VK_NULL_HANDLE;
@@ -40,17 +40,26 @@ public:
     
     bool init(Device& device, const std::string& fontPath, int fontSize = 16);
     void cleanup();
+
+    // Resources consumed by UIRenderer's descriptor set.
+    VkImageView getImageView() const { return m_fontImageView; }
+    VkSampler getSampler() const { return m_fontSampler; }
     
-    // Vertex структура (має співпадати з UIRenderer::UIVertex)
+    // Must stay binary-compatible with UIRenderer::UIVertex.
     struct UIVertex {
         glm::vec2 position;
         glm::vec4 color;
         glm::vec2 texCoord;
     };
     
-    // Рендеринг тексту (повертає vertices для малювання)
-    void renderText(const std::string& text, glm::vec2 position, float scale, 
+    // Append text quads to outVertices; returns nothing.
+    void renderText(const std::string& text, glm::vec2 position, float scale,
                     glm::vec4 color, std::vector<UIVertex>& outVertices);
+
+    // Text width using renderText units (NDC).
+    float measureTextWidth(const std::string& text, float scale) const;
+
+    int getFontSize() const { return m_fontSize; }
     
 private:
     bool loadFont(const std::string& fontPath);

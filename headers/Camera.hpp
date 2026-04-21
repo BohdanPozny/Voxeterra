@@ -31,7 +31,7 @@ public:
     
     void setAspectRatio(float aspectRatio) { m_aspectRatio = aspectRatio; }
     
-    // Для майбутнього input handling
+    // Input-driven camera updates.
     void processKeyboard(int direction, float deltaTime);
     void processMouseMovement(float xoffset, float yoffset);
     void processMouseScroll(float yoffset);

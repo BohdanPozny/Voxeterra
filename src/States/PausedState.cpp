@@ -8,7 +8,7 @@ PausedState::PausedState(Engine* engine)
 
 void PausedState::onEnter() {
     std::cout << "[PausedState] Game paused" << std::endl;
-    // Показати курсор
+    // Show the cursor for menu navigation.
     if (m_engine && m_engine->getWindow().getWindow()) {
         glfwSetInputMode(m_engine->getWindow().getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
     }
@@ -18,13 +18,12 @@ void PausedState::onExit() {
     std::cout << "[PausedState] Leaving pause menu" << std::endl;
 }
 
-void PausedState::update(float deltaTime) {
-    // Поки що нічого
+void PausedState::update(float /*deltaTime*/) {
+    // No simulation while paused.
 }
 
 void PausedState::render() {
-    // TODO: Рендерити pause меню поверх гри
-    // Поки що просто консоль
+    // Console-only for now; a UI overlay is planned.
     std::cout << "\n=== PAUSE MENU ===" << std::endl;
     std::cout << (m_selectedOption == 0 ? "> " : "  ") << "Resume" << std::endl;
     std::cout << (m_selectedOption == 1 ? "> " : "  ") << "Settings" << std::endl;
@@ -33,64 +32,40 @@ void PausedState::render() {
 
 void PausedState::handleInput() {
     if (!m_engine) return;
-    
-    GLFWwindow* window = m_engine->getWindow().getWindow();
-    static bool upPressed = false;
-    static bool downPressed = false;
-    static bool enterPressed = false;
-    static bool escPressed = false;
-    
-    // Навігація вгору
-    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-        if (!upPressed) {
-            m_selectedOption = (m_selectedOption - 1 + m_optionCount) % m_optionCount;
-            upPressed = true;
-        }
-    } else {
-        upPressed = false;
+
+    auto& input = m_engine->getInput();
+
+    // Edge-triggered up navigation.
+    if (input.isKeyPressed(GLFW_KEY_UP) || input.isKeyPressed(GLFW_KEY_W)) {
+        m_selectedOption = (m_selectedOption - 1 + m_optionCount) % m_optionCount;
     }
-    
-    // Навігація вниз
-    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-        if (!downPressed) {
-            m_selectedOption = (m_selectedOption + 1) % m_optionCount;
-            downPressed = true;
-        }
-    } else {
-        downPressed = false;
+
+    // Down navigation.
+    if (input.isKeyPressed(GLFW_KEY_DOWN) || input.isKeyPressed(GLFW_KEY_S)) {
+        m_selectedOption = (m_selectedOption + 1) % m_optionCount;
     }
-    
-    // Вибір опції
-    if (glfwGetKey(window, GLFW_KEY_ENTER) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-        if (!enterPressed) {
-            switch (m_selectedOption) {
-                case 0:  // Resume
-                    m_nextState = GameState::PLAYING;
-                    m_shouldChangeState = true;
-                    break;
-                case 1:  // Settings
-                    m_nextState = GameState::SETTINGS;
-                    m_shouldChangeState = true;
-                    break;
-                case 2:  // Main Menu
-                    m_nextState = GameState::MAIN_MENU;
-                    m_shouldChangeState = true;
-                    break;
-            }
-            enterPressed = true;
+
+    // Activate selected option.
+    if (input.isKeyPressed(GLFW_KEY_ENTER) || input.isKeyPressed(GLFW_KEY_SPACE)) {
+        switch (m_selectedOption) {
+            case 0:  // Resume
+                m_nextState = GameState::PLAYING;
+                m_shouldChangeState = true;
+                break;
+            case 1:  // Settings
+                m_nextState = GameState::SETTINGS;
+                m_shouldChangeState = true;
+                break;
+            case 2:  // Main Menu
+                m_nextState = GameState::MAIN_MENU;
+                m_shouldChangeState = true;
+                break;
         }
-    } else {
-        enterPressed = false;
     }
-    
-    // ESC для Resume
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-        if (!escPressed) {
-            m_nextState = GameState::PLAYING;
-            m_shouldChangeState = true;
-            escPressed = true;
-        }
-    } else {
-        escPressed = false;
+
+    // ESC resumes the game.
+    if (input.isKeyPressed(GLFW_KEY_ESCAPE)) {
+        m_nextState = GameState::PLAYING;
+        m_shouldChangeState = true;
     }
 }

@@ -14,7 +14,7 @@ private:
     bool m_shouldChangeState = false;
     bool m_shouldExit = false;
     
-    // UI елементи (ООП!)
+    // Owned widget tree.
     std::unique_ptr<UIPanel> m_menuPanel;
     UIButton* m_newGameButton = nullptr;
     UIButton* m_settingsButton = nullptr;
@@ -37,4 +37,7 @@ public:
     
     bool shouldExitGame() const { return m_shouldExit; }
     UIPanel* getMenuPanel() const { return m_menuPanel.get(); }
+
+    // Polymorphic render hooks
+    UIElement* getUIRoot() override;
 };

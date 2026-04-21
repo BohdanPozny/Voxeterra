@@ -1,11 +1,10 @@
 #pragma once
 
-// #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <string>
 #include <memory>
 
-// deleter for unique_ptr
+// Custom deleter so a GLFW window can live inside a unique_ptr.
 struct GLFWwindowDeleter {
     void operator()(GLFWwindow* ptr) const {
         if (ptr != nullptr) {
@@ -36,4 +35,11 @@ public:
 
     void getFramebufferSize(int* w, int* h) const;
     GLFWwindow* getWindow() const noexcept { return m_window.get(); }
+
+    bool wasResized() const noexcept { return m_framebufferResized; }
+    void resetResizedFlag() noexcept { m_framebufferResized = false; }
+
+private:
+    bool m_framebufferResized = false;
+    static void framebufferResizeCallback(GLFWwindow* window, int width, int height);
 };

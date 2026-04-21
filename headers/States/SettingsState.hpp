@@ -9,7 +9,7 @@ private:
     Engine* m_engine;
     Config* m_config;
     GameState m_nextState = GameState::SETTINGS;
-    GameState m_returnState = GameState::MAIN_MENU;  // Куди повертатися
+    GameState m_returnState = GameState::MAIN_MENU;  // where Back/Escape goes
     bool m_shouldChangeState = false;
     
     int m_selectedOption = 0;

@@ -7,11 +7,11 @@
 
 class Device;
 
-// Pipeline2D - спеціалізований pipeline для 2D рендерингу (UI, overlays)
+// Graphics pipeline specialised for 2D overlays (UI, HUD, text).
 class Pipeline2D {
 public:
     struct Vertex2D {
-        glm::vec2 position;  // Screen space (-1 to 1)
+        glm::vec2 position;  // Normalised device coords (-1..1).
         glm::vec4 color;
     };
 
@@ -35,6 +35,7 @@ public:
 
     VkPipeline getPipeline() const { return m_pipeline; }
     VkPipelineLayout getLayout() const { return m_pipelineLayout; }
+    VkDescriptorSetLayout getDescriptorSetLayout() const { return m_descriptorSetLayout; }
 
 private:
     void createPipeline(VkRenderPass renderPass, VkExtent2D screenExtent);

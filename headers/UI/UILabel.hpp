@@ -3,7 +3,7 @@
 #include "UI/UIElement.hpp"
 #include <string>
 
-// UILabel - текстовий елемент (НАСЛІДУВАННЯ від UIElement)
+// Static text label.
 class UILabel : public UIElement {
 private:
     std::string m_text;
@@ -14,26 +14,15 @@ public:
     UILabel(const glm::vec2& position, const glm::vec2& size, 
             const std::string& text, float fontSize = 1.0f,
             const glm::vec4& textColor = glm::vec4(1.0f))
-        : UIElement(position, size, glm::vec4(0.0f, 0.0f, 0.0f, 0.0f))  // Прозорий фон
+        : UIElement(position, size, glm::vec4(0.0f))
         , m_text(text)
         , m_fontSize(fontSize)
         , m_textColor(textColor) {}
     
-    // Реалізація віртуальних методів (ПОЛІМОРФІЗМ)
-    void update(float deltaTime) override {
-        // Label статичний, нічого не робимо
-    }
-    
-    void render() override {
-        if (!m_visible) return;
-        // TODO: Рендеринг тексту
-    }
-    
-    void handleInput(const glm::vec2& mousePos, bool mousePressed) override {
-        // Label не обробляє input
-    }
-    
-    // Методи для роботи з текстом
+    // Label has no animation or input behaviour; UIRenderer handles drawing.
+    void update(float) override {}
+    void render() override {}
+    void handleInput(const glm::vec2&, bool) override {}
     void setText(const std::string& text) { m_text = text; }
     std::string getText() const { return m_text; }
     void setTextColor(const glm::vec4& color) { m_textColor = color; }

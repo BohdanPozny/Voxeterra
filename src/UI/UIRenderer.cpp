@@ -19,79 +19,128 @@ UIRenderer::~UIRenderer() {
 bool UIRenderer::init(Device& device, VkRenderPass renderPass, VkExtent2D screenExtent) {
     m_device = device.getLogicalDevice();
     m_physicalDevice = device.getPhysicalDevice();
-    m_devicePtr = &device;  // Зберігаємо для створення Buffer
+    m_devicePtr = &device;
     m_screenExtent = screenExtent;
-    
-    // Створюємо 2D pipeline
+
     m_pipeline2D = std::make_unique<Pipeline2D>();
     if (!m_pipeline2D->init(device, renderPass, screenExtent)) {
         std::cerr << "[UIRenderer] Failed to initialize Pipeline2D" << std::endl;
         return false;
     }
-    
-    // Завантажуємо TTF шрифт
+
+    // Larger atlas font size improves clarity when the text is scaled down.
     m_textRenderer = std::make_unique<TextRenderer>();
-    if (m_textRenderer->init(device, "fonts/default.ttf", 16)) {
-        m_useTextRenderer = true;
-        std::cout << "[UIRenderer] TTF font loaded - ready for rendering" << std::endl;
-    } else {
-        std::cout << "[UIRenderer] TTF font failed, using bitmap font" << std::endl;
-        m_useTextRenderer = false;
+    m_useTextRenderer = m_textRenderer->init(device, "fonts/default.ttf", 48);
+    if (!m_useTextRenderer) {
+        std::cerr << "[UIRenderer] TTF font failed, falling back to bitmap font" << std::endl;
     }
-    
+
+    // Descriptor set is required by the Pipeline2D layout even when the font is absent.
+    if (!createFontDescriptorSet()) {
+        std::cerr << "[UIRenderer] Failed to create font descriptor set" << std::endl;
+        return false;
+    }
+
     std::cout << "[UIRenderer] Initialized with Pipeline2D" << std::endl;
     return true;
 }
 
-void UIRenderer::cleanup() {
-    // TextRenderer cleanup викликається автоматично через destructor
-    m_textRenderer.reset();
-    
-    // Pipeline2D cleanup - викликаємо явно поки device валідний, потім reset
-    if (m_pipeline2D) {
-        m_pipeline2D->cleanup();
+bool UIRenderer::createFontDescriptorSet() {
+    if (!m_textRenderer || m_textRenderer->getImageView() == VK_NULL_HANDLE) {
+        std::cerr << "[UIRenderer] Cannot create descriptor set: no font texture" << std::endl;
+        return false;
     }
+
+    // Single-set descriptor pool for the font sampler.
+    VkDescriptorPoolSize poolSize{};
+    poolSize.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    poolSize.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.maxSets = 1;
+
+    if (vkCreateDescriptorPool(m_device, &poolInfo, nullptr, &m_descriptorPool) != VK_SUCCESS) {
+        std::cerr << "[UIRenderer] Failed to create descriptor pool" << std::endl;
+        return false;
+    }
+
+    // Allocate using Pipeline2D's descriptor set layout.
+    VkDescriptorSetLayout layout = m_pipeline2D->getDescriptorSetLayout();
+    VkDescriptorSetAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocInfo.descriptorPool = m_descriptorPool;
+    allocInfo.descriptorSetCount = 1;
+    allocInfo.pSetLayouts = &layout;
+
+    if (vkAllocateDescriptorSets(m_device, &allocInfo, &m_fontDescriptorSet) != VK_SUCCESS) {
+        std::cerr << "[UIRenderer] Failed to allocate descriptor set" << std::endl;
+        return false;
+    }
+
+    // Bind the atlas texture into the descriptor.
+    VkDescriptorImageInfo imageInfo{};
+    imageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    imageInfo.imageView = m_textRenderer->getImageView();
+    imageInfo.sampler = m_textRenderer->getSampler();
+
+    VkWriteDescriptorSet write{};
+    write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet = m_fontDescriptorSet;
+    write.dstBinding = 0;
+    write.dstArrayElement = 0;
+    write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    write.descriptorCount = 1;
+    write.pImageInfo = &imageInfo;
+
+    vkUpdateDescriptorSets(m_device, 1, &write, 0, nullptr);
+    return true;
+}
+
+void UIRenderer::cleanup() {
+    // Destroying the pool frees every descriptor set it owns.
+    if (m_descriptorPool != VK_NULL_HANDLE && m_device != VK_NULL_HANDLE) {
+        vkDestroyDescriptorPool(m_device, m_descriptorPool, nullptr);
+        m_descriptorPool = VK_NULL_HANDLE;
+        m_fontDescriptorSet = VK_NULL_HANDLE;
+    }
+
+    // Pipeline2D and TextRenderer own their Vulkan objects; tear them down
+    // while the logical device is still valid.
+    m_textRenderer.reset();
+    if (m_pipeline2D) m_pipeline2D->cleanup();
     m_pipeline2D.reset();
-    
     m_vertexBuffer.reset();
+
     m_device = VK_NULL_HANDLE;
 }
 
 void UIRenderer::renderElement(UIElement* element, VkCommandBuffer commandBuffer) {
     if (!element || !element->isVisible()) return;
-    
-    // Рендеримо поточний елемент
+
+    // Prefer renderUI(): it batches the entire tree in one draw call.
     clearBatch();
-    
-    // Додаємо quad для елемента
     addQuad(element->getPosition(), element->getSize(), element->getColor());
-    
-    // Flush batch (поки що нічого не робимо, бо немає pipeline)
-    // flushBatch(commandBuffer);
-    
-    // Рекурсивно рендеримо дочірні елементи
     for (const auto& child : element->getChildren()) {
         renderElement(child.get(), commandBuffer);
     }
 }
 
 void UIRenderer::addQuad(const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color) {
-    // Конвертуємо normalized координати в screen space (-1 to 1)
-    float x1 = pos.x * 2.0f - 1.0f;
-    float y1 = pos.y * 2.0f - 1.0f;
-    float x2 = (pos.x + size.x) * 2.0f - 1.0f;
-    float y2 = (pos.y + size.y) * 2.0f - 1.0f;
-    
-    // Створюємо 6 вершин для 2 трикутники (quad)
-    // UV = (0,0) означає "без текстури" (shader перевіряє це)
-    glm::vec2 uv(0.0f, 0.0f);
-    
-    // Трикутник 1
+    // Convert normalised coords to NDC (-1..1) and emit a quad.
+    // UV = (0,0) tells the shader to skip the font texture lookup.
+    const float x1 = pos.x * 2.0f - 1.0f;
+    const float y1 = pos.y * 2.0f - 1.0f;
+    const float x2 = (pos.x + size.x) * 2.0f - 1.0f;
+    const float y2 = (pos.y + size.y) * 2.0f - 1.0f;
+    const glm::vec2 uv(0.0f, 0.0f);
+
     m_vertices.push_back({glm::vec2(x1, y1), color, uv});
     m_vertices.push_back({glm::vec2(x2, y1), color, uv});
     m_vertices.push_back({glm::vec2(x2, y2), color, uv});
-    
-    // Трикутник 2
+
     m_vertices.push_back({glm::vec2(x1, y1), color, uv});
     m_vertices.push_back({glm::vec2(x2, y2), color, uv});
     m_vertices.push_back({glm::vec2(x1, y2), color, uv});
@@ -106,85 +155,95 @@ void UIRenderer::renderUI(UIElement* rootElement, VkCommandBuffer commandBuffer)
     if (!rootElement) return;
     
     clearBatch();
-    
-    // Збираємо всі UI елементи в batch
     collectUIElements(rootElement);
-    
-    if (m_vertices.empty()) {
-        static int emptyCount = 0;
-        if (emptyCount++ < 5) {
-            std::cout << "[UIRenderer] ⚠️ No vertices to render!" << std::endl;
-        }
-        return;
-    }
-    
-    static int renderCount = 0;
-    if (renderCount++ < 5) {
-        std::cout << "[UIRenderer] ✓ Rendering " << m_vertices.size() << " vertices" << std::endl;
-    }
-    
-    // Bind UI pipeline
+    if (m_vertices.empty()) return;
+
     vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline2D->getPipeline());
-    
-    // Перевіряємо чи треба створити/оновити vertex buffer
-    size_t bufferSize = sizeof(UIVertex) * m_vertices.size();
-    
+    if (m_fontDescriptorSet != VK_NULL_HANDLE) {
+        vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                m_pipeline2D->getLayout(), 0, 1,
+                                &m_fontDescriptorSet, 0, nullptr);
+    }
+
+    // Grow the vertex buffer geometrically to amortise reallocations.
+    const size_t bufferSize = sizeof(UIVertex) * m_vertices.size();
     if (!m_vertexBuffer || bufferSize > m_vertexBufferSize) {
-        // Створюємо новий buffer (більший)
-        m_vertexBufferSize = bufferSize * 2; // З запасом
+        m_vertexBufferSize = bufferSize * 2;
         m_vertexBuffer = std::make_unique<Buffer>();
-        
         if (!m_vertexBuffer->init(*m_devicePtr, m_vertexBufferSize,
                                    VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
-            std::cerr << "[UIRenderer] Failed to create vertex buffer!" << std::endl;
+            std::cerr << "[UIRenderer] Failed to create vertex buffer" << std::endl;
             return;
         }
     }
-    
-    // Копіюємо vertices в buffer
     m_vertexBuffer->copyData(m_vertices.data(), bufferSize);
-    
-    // Bind vertex buffer
+
     VkBuffer vertexBuffers[] = {m_vertexBuffer->getBuffer()};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-    
-    // Draw!
     vkCmdDraw(commandBuffer, static_cast<uint32_t>(m_vertices.size()), 1, 0, 0);
 }
 
 void UIRenderer::collectUIElements(UIElement* element) {
     if (!element || !element->isVisible()) return;
     
-    // Малюємо тільки якщо це не прозора панель (alpha > 0)
-    glm::vec4 color = element->getColor();
-    
+    // Draw the element's background unless it is effectively transparent.
+    const glm::vec4 color = element->getColor();
     if (color.a > 0.01f) {
         addQuad(element->getPosition(), element->getSize(), color);
     }
-    
-    // Якщо це UILabel - малюємо текст
-    UILabel* label = dynamic_cast<UILabel*>(element);
+
+    // Labels and buttons render a text overlay on top of the quad.
+    UILabel*  label  = dynamic_cast<UILabel*>(element);
+    UIButton* button = dynamic_cast<UIButton*>(element);
+    std::string text;
+    glm::vec4 textColor(1.0f);
+    bool hasText = false;
+
     if (label) {
-        std::string text = label->getText();
-        glm::vec4 textColor = label->getTextColor();
-        
-        // Якщо TTF шрифт завантажено - використовуємо його
+        text = label->getText();
+        textColor = label->getTextColor();
+        hasText = !text.empty();
+    } else if (button) {
+        text = button->getText();
+        hasText = !text.empty();
+    }
+
+    if (hasText) {
         if (m_useTextRenderer && m_textRenderer) {
-            float scale = element->getSize().y / 20.0f;  // Масштаб відносно висоти
-            // Конвертуємо вектор (структури ідентичні, тільки namespace різний)
+            // Both the quad batch and TextRenderer emit vertices in NDC (-1..1).
+            const glm::vec2 pos  = element->getPosition();
+            const glm::vec2 size = element->getSize();
+
+            // Text height ~ 60% of the element's height expressed in NDC.
+            const float fontCellHeight = static_cast<float>(m_textRenderer->getFontSize());
+            const float targetHeightNDC = size.y * 2.0f * 0.6f;
+            const float scale = targetHeightNDC / fontCellHeight;
+            const float textWidthNDC = m_textRenderer->measureTextWidth(text, scale);
+
+            // Buttons centre the text; labels use a small left padding.
+            float textX;
+            if (button) {
+                const float centerX = (pos.x + size.x * 0.5f) * 2.0f - 1.0f;
+                textX = centerX - textWidthNDC * 0.5f;
+            } else {
+                textX = (pos.x + size.x * 0.08f) * 2.0f - 1.0f;
+            }
+
+            // TextRenderer draws from the baseline near the top of the glyph box.
+            const float centerYNDC = (pos.y + size.y * 0.5f) * 2.0f - 1.0f;
+            const float textY = centerYNDC + targetHeightNDC * 0.5f;
+
             auto& vertices = reinterpret_cast<std::vector<TextRenderer::UIVertex>&>(m_vertices);
-            m_textRenderer->renderText(text, element->getPosition(), scale, textColor, vertices);
-        } else {
-            // Fallback: bitmap font (5x7 пікселів на символ)
-        float pixelSize = element->getSize().y / 9.0f;  // 7 пікселів + відступи
-        float charWidth = pixelSize * 6.0f;  // 5 пікселів + 1 відступ
-        
+            m_textRenderer->renderText(text, glm::vec2(textX, textY), scale, textColor, vertices);
+        } else if (label) {
+            // Fallback: 5x7 pixel bitmap font built from quads.
+        float pixelSize = element->getSize().y / 9.0f;
+        float charWidth = pixelSize * 6.0f;
+
         float startX = element->getPosition().x + pixelSize;
         float startY = element->getPosition().y + pixelSize;
-        
-        // Bitmap font patterns (5x7 pixels) - кожен символ як масив рядків
         auto getPattern = [](char c) -> const int* {
             static const int font_F[7] = {0b11110, 0b10000, 0b11100, 0b10000, 0b10000, 0b10000, 0b10000};
             static const int font_P[7] = {0b11110, 0b10010, 0b10010, 0b11110, 0b10000, 0b10000, 0b10000};
@@ -226,40 +285,32 @@ void UIRenderer::collectUIElements(UIElement* element) {
         
         auto drawChar = [&](char c, float x, float y) {
             const int* pattern = getPattern(c);
-            
-            // Малюємо кожен піксель літери
             for (int row = 0; row < 7; ++row) {
                 for (int col = 0; col < 5; ++col) {
-                    if (pattern[row] & (1 << (4 - col))) {  // Перевіряємо біт
-                        glm::vec2 pixelPos(x + col * pixelSize, y + row * pixelSize);
-                        glm::vec2 pixelSz(pixelSize * 0.9f, pixelSize * 0.9f);
-                        addQuad(pixelPos, pixelSz, textColor);
+                    if (pattern[row] & (1 << (4 - col))) {
+                        addQuad(glm::vec2(x + col * pixelSize, y + row * pixelSize),
+                                glm::vec2(pixelSize * 0.9f, pixelSize * 0.9f),
+                                textColor);
                     }
                 }
             }
         };
-        
-            // Малюємо кожен символ тексту
+
             for (size_t i = 0; i < text.length(); ++i) {
                 drawChar(text[i], startX + i * charWidth, startY);
             }
-        }  // Кінець else (bitmap font)
-    }  // Кінець if (label)
-    
-    // Рекурсивно додаємо дочірні елементи
+        }
+    }
+
     for (const auto& child : element->getChildren()) {
         collectUIElements(child.get());
     }
 }
 
-void UIRenderer::flushBatch(VkCommandBuffer commandBuffer) {
-    if (m_vertices.empty()) return;
-    
-    // Deprecated - використовуємо renderUI замість цього
-}
+// Deprecated: retained so existing references keep linking; renderUI performs the actual draw.
+void UIRenderer::flushBatch(VkCommandBuffer /*commandBuffer*/) {}
 
 glm::vec2 UIRenderer::normalizedToScreen(const glm::vec2& normalized) const {
-    // Конвертуємо 0-1 в -1 to 1
     return glm::vec2(normalized.x * 2.0f - 1.0f, normalized.y * 2.0f - 1.0f);
 }
 

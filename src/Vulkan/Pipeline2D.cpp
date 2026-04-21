@@ -10,8 +10,8 @@ Pipeline2D::~Pipeline2D() {
 
 bool Pipeline2D::init(Device& device, VkRenderPass renderPass, VkExtent2D screenExtent) {
     m_device = device.getLogicalDevice();
-    
-    // Завантажуємо UI шейдери
+
+    // Load UI shader modules.
     Shader vertShader, fragShader;
     if (!vertShader.loadFromFile(m_device, "shaders/ui.vert.spv")) {
         std::cerr << "[Pipeline2D] Failed to load vertex shader" << std::endl;
@@ -25,7 +25,7 @@ bool Pipeline2D::init(Device& device, VkRenderPass renderPass, VkExtent2D screen
     m_vertShader = vertShader.getModule();
     m_fragShader = fragShader.getModule();
     
-    // Створюємо descriptor set layout для текстури шрифту
+    // Descriptor set layout exposing the font texture sampler to the fragment stage.
     VkDescriptorSetLayoutBinding samplerLayoutBinding{};
     samplerLayoutBinding.binding = 0;
     samplerLayoutBinding.descriptorCount = 1;
@@ -43,7 +43,7 @@ bool Pipeline2D::init(Device& device, VkRenderPass renderPass, VkExtent2D screen
         return false;
     }
     
-    // Створюємо pipeline layout з descriptor set
+    // Pipeline layout references the single descriptor set above.
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount = 1;
@@ -54,7 +54,7 @@ bool Pipeline2D::init(Device& device, VkRenderPass renderPass, VkExtent2D screen
         return false;
     }
     
-    // Створюємо graphics pipeline
+    // Build the graphics pipeline.
     createPipeline(renderPass, screenExtent);
     
     std::cout << "[Pipeline2D] Initialized successfully" << std::endl;
@@ -62,39 +62,25 @@ bool Pipeline2D::init(Device& device, VkRenderPass renderPass, VkExtent2D screen
 }
 
 void Pipeline2D::cleanup() {
-    // Перевіряємо чи device ще валідний
-    if (m_device == VK_NULL_HANDLE) {
-        return;
-    }
-    
-    // Важливо: знищуємо в правильному порядку
-    // 1. Pipeline (використовує layout)
+    if (m_device == VK_NULL_HANDLE) return;
+
+    // Tear down in reverse dependency order: pipeline -> layout -> descriptor layout.
+    // Shader modules are destroyed by the local Shader objects in init().
     if (m_pipeline != VK_NULL_HANDLE) {
         vkDestroyPipeline(m_device, m_pipeline, nullptr);
         m_pipeline = VK_NULL_HANDLE;
     }
-    
-    // 2. Shader modules
-    if (m_vertShader != VK_NULL_HANDLE) {
-        vkDestroyShaderModule(m_device, m_vertShader, nullptr);
-        m_vertShader = VK_NULL_HANDLE;
-    }
-    
-    if (m_fragShader != VK_NULL_HANDLE) {
-        vkDestroyShaderModule(m_device, m_fragShader, nullptr);
-        m_fragShader = VK_NULL_HANDLE;
-    }
-    
-    // 3. Pipeline layout (використовує descriptor set layout)
+    m_vertShader = VK_NULL_HANDLE;
+    m_fragShader = VK_NULL_HANDLE;
+
     if (m_pipelineLayout != VK_NULL_HANDLE) {
         vkDestroyPipelineLayout(m_device, m_pipelineLayout, nullptr);
         m_pipelineLayout = VK_NULL_HANDLE;
     }
-    
-    // 4. Descriptor set layout - НЕ знищуємо через баг в Intel driver
-    // OS очистить автоматично при завершенні програми
-    m_descriptorSetLayout = VK_NULL_HANDLE;
-    
+    if (m_descriptorSetLayout != VK_NULL_HANDLE) {
+        vkDestroyDescriptorSetLayout(m_device, m_descriptorSetLayout, nullptr);
+        m_descriptorSetLayout = VK_NULL_HANDLE;
+    }
     m_device = VK_NULL_HANDLE;
 }
 
@@ -170,7 +156,7 @@ void Pipeline2D::createPipeline(VkRenderPass renderPass, VkExtent2D screenExtent
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     
-    // Blending (для прозорості UI)
+    // Standard alpha blending for translucent UI.
     VkPipelineColorBlendAttachmentState colorBlendAttachment{};
     colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | 
                                            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
@@ -213,6 +199,15 @@ void Pipeline2D::createPipeline(VkRenderPass renderPass, VkExtent2D screenExtent
     pipelineInfo.pRasterizationState = &rasterizer;
     pipelineInfo.pMultisampleState = &multisampling;
     pipelineInfo.pColorBlendState = &colorBlending;
+
+    // Dynamic viewport/scissor so resize does not require pipeline recreation.
+    VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+    VkPipelineDynamicStateCreateInfo dynamicState{};
+    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamicState.dynamicStateCount = 2;
+    dynamicState.pDynamicStates = dynStates;
+    pipelineInfo.pDynamicState = &dynamicState;
+
     pipelineInfo.layout = m_pipelineLayout;
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;

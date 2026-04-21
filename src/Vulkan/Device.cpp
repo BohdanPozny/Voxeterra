@@ -1,7 +1,7 @@
 #include "Vulkan/Device.hpp"
 #include <iostream>
 #include <vector>
-#include <vulkan/vulkan_core.h>
+#include <cstring>
 
 Device::~Device() noexcept {
     if (m_device != VK_NULL_HANDLE) {
@@ -10,44 +10,55 @@ Device::~Device() noexcept {
     }
 }
 
-bool Device::init(VkInstance m_instance, VkSurfaceKHR surface) noexcept {
-    if (!pickPhysicalDevice(m_instance, surface)) {
+// Returns true if extensionName is present in the physical device's extension list.
+static bool hasDeviceExtension(VkPhysicalDevice device, const char* extensionName) {
+    uint32_t count = 0;
+    vkEnumerateDeviceExtensionProperties(device, nullptr, &count, nullptr);
+    std::vector<VkExtensionProperties> props(count);
+    vkEnumerateDeviceExtensionProperties(device, nullptr, &count, props.data());
+    for (const auto& p : props) {
+        if (std::strcmp(p.extensionName, extensionName) == 0) return true;
+    }
+    return false;
+}
+
+bool Device::init(VkInstance instance, VkSurfaceKHR surface) noexcept {
+    if (!pickPhysicalDevice(instance, surface)) {
         return false;
     }
 
-    VkDeviceQueueCreateInfo queueInfo = {};
+    float queuePriority = 1.0f;
+    VkDeviceQueueCreateInfo queueInfo{};
     queueInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queueInfo.queueFamilyIndex = m_queueIndices.graphicsFamily.value();
     queueInfo.queueCount = 1;
-    float queuePriority = 1.0;
     queueInfo.pQueuePriorities = &queuePriority;
-    
-    VkPhysicalDeviceFeatures deviceFeatures = {};
-    vkGetPhysicalDeviceFeatures(m_physicalDevice, &deviceFeatures);
-    if (deviceFeatures.robustBufferAccess == VK_FALSE) {
-        std::cerr << "[Device] Feature is not supported" << std::endl;
+
+    VkPhysicalDeviceFeatures deviceFeatures{};
+
+    std::vector<const char*> deviceExtensions = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+
+    // MoltenVK (macOS) advertises the non-conformant portability subset which
+    // must be enabled whenever the device exposes it.
+    if (hasDeviceExtension(m_physicalDevice, "VK_KHR_portability_subset")) {
+        deviceExtensions.push_back("VK_KHR_portability_subset");
     }
 
-    VkDeviceCreateInfo deviceInfo = {};
+    VkDeviceCreateInfo deviceInfo{};
     deviceInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    deviceInfo.queueCreateInfoCount = queueInfo.queueCount;
+    deviceInfo.queueCreateInfoCount = 1;
     deviceInfo.pQueueCreateInfos = &queueInfo;
     deviceInfo.pEnabledFeatures = &deviceFeatures;
-
-    std::vector<const char*> deviceExtensions = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME
-    };
-    deviceInfo.enabledExtensionCount = deviceExtensions.size();
+    deviceInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
     deviceInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
     if (vkCreateDevice(m_physicalDevice, &deviceInfo, nullptr, &m_device) != VK_SUCCESS) {
-        std::cerr << "[Device] Not create Logical Device" << std::endl;
+        std::cerr << "[Device] vkCreateDevice failed" << std::endl;
         return false;
     }
 
-    vkGetDeviceQueue(m_device, m_queueIndices.graphicsFamily.value(), m_queueIndices.graphicsFamily.value(), &m_graphicsQueue);
-    vkGetDeviceQueue(m_device, m_queueIndices.presentFamily.value(), m_queueIndices.presentFamily.value(), &m_presentQueue);
-
+    vkGetDeviceQueue(m_device, m_queueIndices.graphicsFamily.value(), 0, &m_graphicsQueue);
+    vkGetDeviceQueue(m_device, m_queueIndices.presentFamily.value(),  0, &m_presentQueue);
     return true;
 }
 
@@ -86,36 +97,30 @@ bool Device::isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface) con
     return indices.isComplete();
 }
 
-bool Device::pickPhysicalDevice(VkInstance m_instance, VkSurfaceKHR surface) noexcept {
+bool Device::pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface) noexcept {
     uint32_t deviceCount = 0;
-    vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
-
+    vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
     if (deviceCount == 0) {
-        std::cerr << "[Device Error] Not find GPU with support Vulkan";
+        std::cerr << "[Device] No Vulkan-capable GPU found" << std::endl;
         return false;
     }
 
     std::vector<VkPhysicalDevice> devices(deviceCount);
-    vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
+    vkEnumeratePhysicalDevices(instance, &deviceCount, devices.data());
 
-    for (const auto& device:devices) {
+    for (const auto& device : devices) {
         if (isDeviceSuitable(device, surface)) {
             m_physicalDevice = device;
             m_queueIndices = findQueueFamilies(device, surface);
-            
+
             VkPhysicalDeviceProperties properties;
             vkGetPhysicalDeviceProperties(device, &properties);
-            std::cout << "Selected GPU: " << properties.deviceName << std::endl;
-
-            break;
+            std::cout << "[Device] Selected GPU: " << properties.deviceName << std::endl;
+            return true;
         }
     }
 
-    if (m_physicalDevice == VK_NULL_HANDLE) {
-        std::cerr << "[Device Error] No GPU is compatible with this engine";
-        return false;
-    }
-
-    return true;
+    std::cerr << "[Device] No GPU satisfies required queue families" << std::endl;
+    return false;
 }
 

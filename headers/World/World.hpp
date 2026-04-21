@@ -5,7 +5,7 @@
 #include <unordered_map>
 #include <glm/glm.hpp>
 
-// Hash функція для glm::ivec3 (для unordered_map)
+// Hash specialization for glm::ivec3 keys.
 struct IVec3Hash {
     std::size_t operator()(const glm::ivec3& v) const {
         std::size_t h1 = std::hash<int>{}(v.x);
@@ -26,20 +26,25 @@ public:
     World(const World&) = delete;
     World& operator=(const World&) = delete;
 
-    // Створення/отримання чанку
-    Chunk* getChunk(const glm::ivec3& position);
-    Chunk* createChunk(const glm::ivec3& position);
-    
-    // Отримання воксела у світових координатах
+    // Chunk lookup/creation (chunk coordinates).
+    Chunk*       getChunk(const glm::ivec3& position);
+    const Chunk* getChunk(const glm::ivec3& position) const;
+    Chunk*       createChunk(const glm::ivec3& position);
+
+    // Voxel accessors using world (block) coordinates.
     VoxelType getVoxel(int x, int y, int z);
-    void setVoxel(int x, int y, int z, VoxelType type);
-    
-    // Генерація тестового світу
+    void      setVoxel(int x, int y, int z, VoxelType type);
+
+    // Deterministic terrain generator seeded by chunk coordinates.
+    void generateChunkData(Chunk* chunk);
+
+    // No-op with streaming enabled; retained for backward compatibility.
     void generateTestWorld();
-    
-    // Оновлення всіх dirty чанків
+
+    // Release a chunk's memory.
+    void removeChunk(const glm::ivec3& position);
+
+    // Rebuild meshes for every dirty chunk.
     void updateChunks();
-    
-    // Getters
     const auto& getChunks() const { return m_chunks; }
 };

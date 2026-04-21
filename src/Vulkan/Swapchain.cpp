@@ -71,7 +71,7 @@ bool Swapchain::init(Device& device, Window& window, VkSurfaceKHR m_surface) noe
     createInfo.oldSwapchain = VK_NULL_HANDLE;
 
     if (vkCreateSwapchainKHR(m_deviceHandle, &createInfo, nullptr, &m_swapchain)) {
-        std::cerr << "[Swapchain] Not create VkSwapchainKHR" << std::endl;
+        std::cerr << "[Swapchain] vkCreateSwapchainKHR failed" << std::endl;
         return false;
     }
 
@@ -148,7 +148,7 @@ void Swapchain::createImageViews() {
         createInfo.subresourceRange.layerCount = 1;
 
         if (vkCreateImageView(m_deviceHandle, &createInfo, nullptr, &m_imageViews[i]) != VK_SUCCESS) {
-            std::cerr << "[Swapchain] Not create ImageView" << std::endl;
+            std::cerr << "[Swapchain] vkCreateImageView failed" << std::endl;
         }
     }
 }

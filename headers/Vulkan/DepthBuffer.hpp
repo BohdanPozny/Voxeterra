@@ -24,6 +24,7 @@ public:
     DepthBuffer& operator=(const DepthBuffer&) = delete;
 
     bool init(Device& device, VkExtent2D extent) noexcept;
+    void cleanup() noexcept;
 
     VkImageView getImageView() const noexcept { return m_depthImageView; }
     VkFormat getFormat() const noexcept { return VK_FORMAT_D32_SFLOAT; }

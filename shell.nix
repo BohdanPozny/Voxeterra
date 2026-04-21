@@ -43,7 +43,6 @@ pkgs.mkShell {
   ];
 
   shellHook = ''
-    exec zsh
     export VULKAN_SDK=${pkgs.vulkan-headers}
     export VK_LAYER_PATH=${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d
     export LD_LIBRARY_PATH=/run/opengl-driver/lib:${pkgs.vulkan-loader}/lib:$LD_LIBRARY_PATH

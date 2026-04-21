@@ -1,100 +1,81 @@
-# Voxeterra - Воксельний рушій
+# Voxeterra
 
-Воксельний рушій на базі Vulkan SDK та GLFW.
+A Vulkan-based voxel engine written in modern C++20. Cross-platform: builds on
+Linux, Windows, and macOS (via MoltenVK).
 
-## Залежності
+## Features
 
-- Vulkan SDK
-- GLFW3
+- Vulkan 1.2 renderer with separate 3D world and 2D UI pipelines
+- Chunked world with binary greedy meshing
+- Streaming chunk loader around the camera
+- TTF font atlas + text rendering
+- Simple state machine (main menu, playing, paused, settings)
+- JSON-backed user configuration
+
+## Dependencies
+
+- Vulkan SDK (includes `glslc`)
+- GLFW 3
 - GLM
-- CMake 3.15+
-- C++20 компілятор
+- CMake 3.16+
+- A C++20 compiler (GCC 11+, Clang 13+, MSVC 19.3+)
+- macOS: MoltenVK (shipped with the Vulkan SDK for macOS)
 
-## Збірка проєкту
+## Building
 
-### NixOS (рекомендовано)
+Shaders are compiled automatically by CMake, and runtime assets (`fonts/`,
+`config.json`) are copied next to the executable.
+
+### Linux / macOS
 
 ```bash
-# Увійти в nix-shell
-nix-shell
-
-# Компіляція шейдерів
-cd shaders
-chmod +x compile.sh
-./compile.sh
-cd ..
-
-# Збірка проєкту
-rm -rf build && mkdir build
-cmake -S . -B build
-cmake --build build
-
-# Запуск
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 ./build/Voxterra
 ```
 
-### Інші системи
+### Windows (Visual Studio)
 
-```bash
-# Компіляція шейдерів
-cd shaders
-glslc triangle.vert -o triangle.vert.spv
-glslc triangle.frag -o triangle.frag.spv
-cd ..
-
-# Збірка
-mkdir build
-cd build
-cmake ..
-make
-
-# Запуск
-./Voxterra
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+./build/Release/Voxterra.exe
 ```
 
-## Структура проєкту
+Make sure `VULKAN_SDK` is set so CMake can locate `glslc`.
+
+### NixOS
+
+```bash
+nix-shell
+cmake -S . -B build && cmake --build build -j
+./build/Voxterra
+```
+
+## Project layout
 
 ```
 Voxeterra/
-├── headers/           # Заголовкові файли
-│   ├── Vulkan/       # Vulkan компоненти
-│   ├── Window.hpp
-│   └── Engine.hpp
-├── src/              # Реалізація
-│   └── Vulkan/
-├── shaders/          # GLSL шейдери
-├── main.cpp          # Точка входу
+├── headers/          # Public headers
+│   ├── Vulkan/       # Vulkan wrappers (Instance, Device, Swapchain, ...)
+│   ├── World/        # Voxel, Chunk, World, WorldRenderer
+│   ├── UI/           # UIElement, UIPanel, UIButton, UILabel
+│   ├── States/       # MainMenu / Playing / Paused / Settings
+│   ├── Input/        # InputManager
+│   └── utils/        # BitUtils (portable ctz)
+├── src/              # Implementation mirroring headers/
+├── shaders/          # GLSL sources (compiled to SPIR-V at build time)
+├── fonts/            # TTF fonts copied next to the executable
+├── config.json       # User configuration
+├── main.cpp          # Entry point
 └── CMakeLists.txt
 ```
 
-## Поточний стан
+## Configuration
 
-### Реалізовано:
-- ✅ Engine клас з композицією всіх компонентів
-- ✅ Window система (GLFW)
-- ✅ Vulkan Instance
-- ✅ Device (фізичний та логічний)
-- ✅ Swapchain
-- ✅ Render Pass
-- ✅ Framebuffers
-- ✅ Graphics Pipeline
-- ✅ Shader система
-- ✅ Command Buffers
-- ✅ Synchronization objects
-- ✅ Render loop з базовим трикутником
+`config.json` is loaded on startup and saved when the settings screen exits.
+Delete the file to regenerate it with defaults.
 
-### В розробці:
-- Vertex/Index buffers
-- Uniform buffers
-- Camera система
-- Тестова геометрія
+## License
 
-### Заплановано:
-- Воксельна система
-- Chunk manager
-- Procedural generation
-- Оптимізації рендерингу
-
-## Ліцензія
-
-GPL-3.0
+GPL-3.0. See `LICENSE`.
