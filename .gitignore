@@ -1,35 +1,84 @@
-# Build folders
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
 build/
-cmake-build-debug/
+build-*/
+out/
+cmake-build-*/
+Debug/
+Release/
+RelWithDebInfo/
+MinSizeRel/
 
-# Executables
-Voxeterra
-*.exe
-*.o
-*.a
-*.so
-
-# Editor files
-.vscode/
-.idea/
-*.swp
-
-CMakeLists.txt.user
+# ---------------------------------------------------------------------------
+# CMake
+# ---------------------------------------------------------------------------
 CMakeCache.txt
-CMakeFiles
-CMakeScripts
-Testing
+CMakeFiles/
+CMakeScripts/
+CMakeUserPresets.json
+CTestTestfile.cmake
 Makefile
 cmake_install.cmake
 install_manifest.txt
 compile_commands.json
-CTestTestfile.cmake
-_deps
-CMakeUserPresets.json
+_deps/
+Testing/
 
-# CLion
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#cmake-build-*
+# ---------------------------------------------------------------------------
+# Binaries / object files
+# ---------------------------------------------------------------------------
+Voxterra
+Voxterra.exe
+*.exe
+*.out
+*.app
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.idb
+
+# Compiled shaders (produced at build time by CMake)
+*.spv
+
+# ---------------------------------------------------------------------------
+# Editor / IDE
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+.vs/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+CMakeLists.txt.user
+CMakeLists.txt.user.*
+
+# clangd / ccls caches
+.cache/
+.clangd/
+.ccls-cache/
+
+# ---------------------------------------------------------------------------
+# OS cruft
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ---------------------------------------------------------------------------
+# Misc / project
+# ---------------------------------------------------------------------------
+*.log
+*.tmp
+doc.zip
+tasks.txt
