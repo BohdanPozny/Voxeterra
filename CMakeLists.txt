@@ -5,9 +5,9 @@ project(Voxterra VERSION 0.1 LANGUAGES CXX)
 # Export compile_commands.json for clangd / IDE integration.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Place the executable in the top-level build directory so runtime assets
-# (shaders/, fonts/, config.json) resolve with relative paths.
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+# Single-config generators (Ninja/Make) put the binary in ${CMAKE_BINARY_DIR};
+# multi-config generators (Visual Studio/Xcode) use a per-config subdirectory.
+# Asset copy steps below use $<TARGET_FILE_DIR:Voxterra> so they work with both.
 
 # -----------------------------------------------------------------------------
 # Dependencies
@@ -71,8 +71,6 @@ endif()
 # Shader compilation (cross-platform, integrated into the build graph)
 # -----------------------------------------------------------------------------
 set(SHADER_SRC_DIR ${CMAKE_CURRENT_SOURCE_DIR}/shaders)
-set(SHADER_OUT_DIR ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/shaders)
-file(MAKE_DIRECTORY ${SHADER_OUT_DIR})
 
 set(SHADER_SOURCES
     voxel.vert
@@ -82,10 +80,15 @@ set(SHADER_SOURCES
     ui.frag
 )
 
+# Intermediate .spv files live in the build tree; they are copied next to the
+# executable by the post-build step below.
+set(SHADER_INT_DIR ${CMAKE_BINARY_DIR}/shaders)
+file(MAKE_DIRECTORY ${SHADER_INT_DIR})
+
 set(SPV_OUTPUTS "")
 foreach(SHADER ${SHADER_SOURCES})
     set(SRC ${SHADER_SRC_DIR}/${SHADER})
-    set(DST ${SHADER_OUT_DIR}/${SHADER}.spv)
+    set(DST ${SHADER_INT_DIR}/${SHADER}.spv)
     add_custom_command(
         OUTPUT  ${DST}
         COMMAND ${GLSLC_EXECUTABLE} ${SRC} -o ${DST}
@@ -100,14 +103,18 @@ add_custom_target(Shaders ALL DEPENDS ${SPV_OUTPUTS})
 add_dependencies(Voxterra Shaders)
 
 # -----------------------------------------------------------------------------
-# Copy runtime assets next to the executable
+# Copy runtime assets next to the executable (works on Ninja/Make AND on
+# multi-config generators like Visual Studio/Xcode).
 # -----------------------------------------------------------------------------
 add_custom_command(TARGET Voxterra POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${SHADER_INT_DIR}
+            $<TARGET_FILE_DIR:Voxterra>/shaders
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
             ${CMAKE_CURRENT_SOURCE_DIR}/fonts
-            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/fonts
+            $<TARGET_FILE_DIR:Voxterra>/fonts
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_CURRENT_SOURCE_DIR}/config.json
-            ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/config.json
-    COMMENT "Copying runtime assets (fonts, config)"
+            $<TARGET_FILE_DIR:Voxterra>/config.json
+    COMMENT "Copying runtime assets (shaders, fonts, config)"
 )
