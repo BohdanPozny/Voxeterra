@@ -82,3 +82,9 @@ Desktop.ini
 *.tmp
 doc.zip
 tasks.txt
+
+
+
+## Config
+config.json
+doc/

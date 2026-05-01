@@ -17,7 +17,10 @@ private:
     float m_aspectRatio;
     float m_nearPlane;
     float m_farPlane;
-    
+
+    float m_mouseSensitivity = 0.1f;
+    float m_movementSpeed = 40.0f;
+
     void updateCameraVectors();
 
 public:
@@ -30,7 +33,10 @@ public:
     glm::mat4 getProjectionMatrix() const;
     
     void setAspectRatio(float aspectRatio) { m_aspectRatio = aspectRatio; }
-    
+    void setFOV(float fov) { m_fov = fov; }
+    void setMouseSensitivity(float sensitivity) { m_mouseSensitivity = sensitivity; }
+    void setMovementSpeed(float speed) { m_movementSpeed = speed; }
+
     // Input-driven camera updates.
     void processKeyboard(int direction, float deltaTime);
     void processMouseMovement(float xoffset, float yoffset);

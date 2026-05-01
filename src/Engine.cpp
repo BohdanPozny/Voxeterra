@@ -15,6 +15,11 @@ Engine::~Engine() noexcept {
 bool Engine::init() {
     m_config.load();
 
+    // Apply Config-driven camera settings before any input is processed.
+    m_camera.setFOV(m_config.getFOV());
+    m_camera.setMouseSensitivity(m_config.getMouseSensitivity());
+    m_camera.setMovementSpeed(m_config.getMovementSpeed());
+
     if (!initWindow())  return false;
     if (!initVulkan())  return false;
 
@@ -61,7 +66,8 @@ bool Engine::initVulkan() {
     VkExtent2D ext = m_renderer.getSwapchainExtent();
     m_camera.setAspectRatio(static_cast<float>(ext.width) / static_cast<float>(ext.height));
 
-    if (!m_uiRenderer.init(m_renderer.getDevice(), m_renderer.getRenderPass(), m_renderer.getSwapchainExtent())) {
+    if (!m_uiRenderer.init(m_renderer.getDevice(), m_renderer.getRenderPass(), m_renderer.getSwapchainExtent(),
+                           m_config.getUIFont(), m_config.getUIFontSize())) {
         std::cerr << "[Engine] Failed to init UI renderer" << std::endl;
         return false;
     }

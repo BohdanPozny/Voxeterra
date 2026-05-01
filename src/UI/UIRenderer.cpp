@@ -16,7 +16,8 @@ UIRenderer::~UIRenderer() {
     cleanup();
 }
 
-bool UIRenderer::init(Device& device, VkRenderPass renderPass, VkExtent2D screenExtent) {
+bool UIRenderer::init(Device& device, VkRenderPass renderPass, VkExtent2D screenExtent,
+                      const std::string& fontPath, int fontSize) {
     m_device = device.getLogicalDevice();
     m_physicalDevice = device.getPhysicalDevice();
     m_devicePtr = &device;
@@ -30,7 +31,7 @@ bool UIRenderer::init(Device& device, VkRenderPass renderPass, VkExtent2D screen
 
     // Larger atlas font size improves clarity when the text is scaled down.
     m_textRenderer = std::make_unique<TextRenderer>();
-    m_useTextRenderer = m_textRenderer->init(device, "fonts/default.ttf", 48);
+    m_useTextRenderer = m_textRenderer->init(device, fontPath, fontSize);
     if (!m_useTextRenderer) {
         std::cerr << "[UIRenderer] TTF font failed, falling back to bitmap font" << std::endl;
     }

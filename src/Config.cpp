@@ -45,7 +45,14 @@ bool Config::load() {
             if (audio.contains("musicVolume")) m_musicVolume = audio["musicVolume"];
             if (audio.contains("sfxVolume")) m_sfxVolume = audio["sfxVolume"];
         }
-        
+
+        // UI
+        if (j.contains("ui")) {
+            auto& ui = j["ui"];
+            if (ui.contains("font")) m_uiFont = ui["font"];
+            if (ui.contains("fontSize")) m_uiFontSize = ui["fontSize"];
+        }
+
         std::cout << "[Config] Loaded from: " << m_configPath << std::endl;
         return true;
     }
@@ -76,7 +83,11 @@ bool Config::save() {
         j["audio"]["masterVolume"] = m_masterVolume;
         j["audio"]["musicVolume"] = m_musicVolume;
         j["audio"]["sfxVolume"] = m_sfxVolume;
-        
+
+        // UI
+        j["ui"]["font"] = m_uiFont;
+        j["ui"]["fontSize"] = m_uiFontSize;
+
         std::ofstream file(m_configPath);
         if (!file.is_open()) {
             std::cerr << "[Config] Failed to save: " << m_configPath << std::endl;

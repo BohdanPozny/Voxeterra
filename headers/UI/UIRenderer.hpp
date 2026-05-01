@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <vector>
 #include <memory>
+#include <string>
 
 class Device;
 class RenderPass;
@@ -50,7 +51,8 @@ public:
     UIRenderer() = default;
     ~UIRenderer();
     
-    bool init(Device& device, VkRenderPass renderPass, VkExtent2D screenExtent);
+    bool init(Device& device, VkRenderPass renderPass, VkExtent2D screenExtent,
+              const std::string& fontPath, int fontSize);
     void cleanup();
     
     // Draw one element and recurse into its children (legacy helper; prefer renderUI()).

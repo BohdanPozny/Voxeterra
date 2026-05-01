@@ -36,10 +36,8 @@ bool Window::init(int w, int h, std::string name, bool fullscreen) noexcept {
                 glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
             }
         }
-    } else {
-        // Windowed mode: open maximized so the user gets a real working area.
-        glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
     }
+    // Windowed mode: honour the requested width/height from Config as-is.
 
     m_window.reset(glfwCreateWindow(width, height, nameWindow.c_str(), monitor, nullptr));
     if (!m_window) {

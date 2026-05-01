@@ -24,6 +24,10 @@ private:
     float m_musicVolume = 0.7f;
     float m_sfxVolume = 0.8f;
 
+    // UI
+    std::string m_uiFont = "fonts/default.ttf";
+    int m_uiFontSize = 48;
+
 public:
     Config(const std::string& configPath = "config.json");
     
@@ -60,4 +64,11 @@ public:
     void setMasterVolume(float volume) { m_masterVolume = volume; }
     void setMusicVolume(float volume) { m_musicVolume = volume; }
     void setSFXVolume(float volume) { m_sfxVolume = volume; }
+
+    // UI getters/setters
+    const std::string& getUIFont() const { return m_uiFont; }
+    int getUIFontSize() const { return m_uiFontSize; }
+
+    void setUIFont(const std::string& font) { m_uiFont = font; }
+    void setUIFontSize(int size) { m_uiFontSize = size; }
 };

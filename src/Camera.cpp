@@ -33,7 +33,7 @@ glm::mat4 Camera::getProjectionMatrix() const {
 }
 
 void Camera::processKeyboard(int direction, float deltaTime) {
-    float velocity = 40.0f * deltaTime;
+    float velocity = m_movementSpeed * deltaTime;
     
     // 0=Forward, 1=Backward, 2=Left, 3=Right, 4=Up, 5=Down
     if (direction == 0) {
@@ -57,9 +57,8 @@ void Camera::processKeyboard(int direction, float deltaTime) {
 }
 
 void Camera::processMouseMovement(float xoffset, float yoffset) {
-    float sensitivity = 0.1f;
-    xoffset *= sensitivity;
-    yoffset *= sensitivity;
+    xoffset *= m_mouseSensitivity;
+    yoffset *= m_mouseSensitivity;
 
     m_yaw += xoffset;
     m_pitch += yoffset;
