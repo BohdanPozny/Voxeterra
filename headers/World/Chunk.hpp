@@ -61,4 +61,9 @@ public:
 
     // Debug helper: fill the chunk with a half-solid stone column plus random grass.
     void fillTestData();
+
+    // World-space block coordinate -> chunk coordinate (floor-division on CHUNK_SIZE).
+    static glm::ivec3 worldToChunkCoord(const glm::ivec3& worldBlock);
+    // Convenience overload for floating-point world positions (camera, entities).
+    static glm::ivec3 worldToChunkCoord(const glm::vec3& worldPos);
 };

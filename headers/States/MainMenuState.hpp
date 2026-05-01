@@ -17,7 +17,6 @@ private:
     // Owned widget tree.
     std::unique_ptr<UIPanel> m_menuPanel;
     UIButton* m_newGameButton = nullptr;
-    UIButton* m_settingsButton = nullptr;
     UIButton* m_exitButton = nullptr;
     
     void createUI();

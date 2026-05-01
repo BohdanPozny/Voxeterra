@@ -1,14 +1,7 @@
 #pragma once
 
 #include "Window.hpp"
-#include "Vulkan/Instance.hpp"
-#include "Vulkan/Device.hpp"
-#include "Vulkan/Swapchain.hpp"
-#include "Vulkan/RenderPass.hpp"
-#include "Vulkan/Framebuffer.hpp"
-#include "Vulkan/CommandPool.hpp"
-#include "Vulkan/DepthBuffer.hpp"
-#include "Vulkan/FrameSync.hpp"
+#include "Vulkan/Renderer.hpp"
 #include "World/WorldRenderer.hpp"
 #include "Camera.hpp"
 #include "StateManager.hpp"
@@ -25,23 +18,11 @@ private:
     // Declaration order matches creation order; destructors run in reverse,
     // which gives us correct teardown for Vulkan resources.
     Window m_window;
-    Instance m_instance;
-    Device m_device;
-    Swapchain m_swapchain;
-    RenderPass m_renderPass;
-    DepthBuffer m_depthBuffer;
-    Framebuffer m_framebuffer;
-    CommandPool m_commandPool;
+    Renderer m_renderer;
 
     WorldRenderer m_worldRenderer;
     Camera m_camera;
     InputManager m_input;
-
-    VkSurfaceKHR m_surface = VK_NULL_HANDLE;
-
-    static const int MAX_FRAMES_IN_FLIGHT = 2;
-    FrameSync m_frameSync;
-    uint32_t m_currentFrame = 0;
 
     StateManager m_stateManager;
     Config m_config;
@@ -55,9 +36,7 @@ private:
     void cleanup();
 
     void drawFrame();
-    void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
     void processInput(float deltaTime);
-    void recreateSwapchain();
 
 public:
     Engine() = default;

@@ -7,7 +7,7 @@ Window::~Window() noexcept {
     glfwTerminate();
 }
 
-bool Window::init(int w, int h, std::string name) noexcept {
+bool Window::init(int w, int h, std::string name, bool fullscreen) noexcept {
     width = w;
     height = h;
     nameWindow = name;
@@ -21,7 +21,27 @@ bool Window::init(int w, int h, std::string name) noexcept {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
-    m_window.reset(glfwCreateWindow(width, height, nameWindow.c_str(), nullptr, nullptr));
+    GLFWmonitor* monitor = nullptr;
+    if (fullscreen) {
+        // Borderless fullscreen at the monitor's native mode.
+        monitor = glfwGetPrimaryMonitor();
+        if (monitor) {
+            const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+            if (mode) {
+                width  = mode->width;
+                height = mode->height;
+                glfwWindowHint(GLFW_RED_BITS,     mode->redBits);
+                glfwWindowHint(GLFW_GREEN_BITS,   mode->greenBits);
+                glfwWindowHint(GLFW_BLUE_BITS,    mode->blueBits);
+                glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+            }
+        }
+    } else {
+        // Windowed mode: open maximized so the user gets a real working area.
+        glfwWindowHint(GLFW_MAXIMIZED, GLFW_TRUE);
+    }
+
+    m_window.reset(glfwCreateWindow(width, height, nameWindow.c_str(), monitor, nullptr));
     if (!m_window) {
         std::cerr << "[Window] glfwCreateWindow failed" << std::endl;
         return false;

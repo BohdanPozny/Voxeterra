@@ -1,0 +1,39 @@
+@startuml streaming
+scale 0.8
+title Рисунок 2.2 – Блок-схема алгоритму стримінгу WorldRenderer::updateStreaming
+skinparam defaultFontName "Times New Roman"
+skinparam defaultFontSize 13
+skinparam Padding 1
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityBorderColor #000000
+skinparam ArrowColor #000000
+
+start
+:Вхід: cameraPos, renderDistance;
+if (m_world == nullptr?) then (так)
+  stop
+else (ні)
+endif
+
+:center := worldToChunkCoord(cameraPos)
+center.y := 0
+loadRadius := renderDistance
+unloadRadius := renderDistance + 1;
+
+if (center !=\nm_lastStreamCenter?) then (так)
+  :rebuildLoadQueue(center, loadRadius);
+else (ні)
+  if (m_streamingInProgress\n== false?) then (так)
+    stop
+  else (ні)
+  endif
+endif
+
+:unloadFarChunks(center,\nunloadRadius * unloadRadius);
+
+:streamNextBatch();
+
+:recomputeStats();
+
+stop
+@enduml

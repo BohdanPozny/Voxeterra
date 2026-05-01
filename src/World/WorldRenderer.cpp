@@ -87,57 +87,90 @@ void WorldRenderer::generateWorld() {
     // Chunks are generated lazily by updateStreaming() as the camera moves.
 }
 
-void WorldRenderer::updateStreaming(const glm::vec3& cameraPos, int renderDistance) {
-    if (!m_world) return;
+void WorldRenderer::uploadChunk(const glm::ivec3& cpos) {
+    Chunk* chunk = m_world->getChunk(cpos);
+    if (!chunk) return;
+    chunk->setDirty(true);
+    chunk->generateMesh(m_world.get());
 
-    // Streaming is XZ-only; world Y is pinned to 0 for this build.
-    auto floorDiv = [](int a, int b) -> int {
-        return a >= 0 ? a / b : (a - b + 1) / b;
-    };
-    int ccx = floorDiv(static_cast<int>(std::floor(cameraPos.x)), CHUNK_SIZE);
-    int ccz = floorDiv(static_cast<int>(std::floor(cameraPos.z)), CHUNK_SIZE);
-    glm::ivec3 center(ccx, 0, ccz);
+    const auto& vertices  = chunk->getVertices();
+    const auto& indices   = chunk->getIndices();
+    const auto& wVertices = chunk->getWaterVertices();
+    const auto& wIndices  = chunk->getWaterIndices();
 
-    const int loadRadius   = renderDistance;
-    const int unloadRadius = renderDistance + 1;
-    const int loadSq       = loadRadius * loadRadius;
-    const int unloadSq     = unloadRadius * unloadRadius;
+    ChunkBuffers cb;
+    if (!vertices.empty() && !indices.empty()) {
+        cb.indexCount = static_cast<uint32_t>(indices.size());
+        cb.vertex = std::make_unique<Buffer>();
+        if (cb.vertex->init(*m_device,
+                            vertices.size() * sizeof(VoxelVertex),
+                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+            cb.vertex->copyData(vertices.data(), vertices.size() * sizeof(VoxelVertex));
+        }
+        cb.index = std::make_unique<Buffer>();
+        if (cb.index->init(*m_device,
+                           indices.size() * sizeof(uint32_t),
+                           VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                           VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+            cb.index->copyData(indices.data(), indices.size() * sizeof(uint32_t));
+        }
+    }
+    if (!wVertices.empty() && !wIndices.empty()) {
+        cb.waterIndexCount = static_cast<uint32_t>(wIndices.size());
+        cb.waterVertex = std::make_unique<Buffer>();
+        if (cb.waterVertex->init(*m_device,
+                                 wVertices.size() * sizeof(VoxelVertex),
+                                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+            cb.waterVertex->copyData(wVertices.data(), wVertices.size() * sizeof(VoxelVertex));
+        }
+        cb.waterIndex = std::make_unique<Buffer>();
+        if (cb.waterIndex->init(*m_device,
+                                wIndices.size() * sizeof(uint32_t),
+                                VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+            cb.waterIndex->copyData(wIndices.data(), wIndices.size() * sizeof(uint32_t));
+        }
+    }
+    m_chunkBuffers[cpos] = std::move(cb);
+}
 
+
+void WorldRenderer::rebuildLoadQueue(const glm::ivec3& center, int loadRadius) {
     // Vertical range is fixed (world Y pinned to [0, WORLD_Y_CHUNKS)).
     constexpr int WORLD_Y_CHUNKS = 4;
+    const int loadSq = loadRadius * loadRadius;
 
-    // Rebuild the nearest-first load queue whenever the centre moves.
-    if (center != m_lastStreamCenter) {
-        m_lastStreamCenter = center;
-        m_streamingInProgress = true;
-        m_loadQueue.clear();
-        m_loadQueueCursor = 0;
-        m_loadQueue.reserve(static_cast<size_t>(loadSq) * 4 * WORLD_Y_CHUNKS);
+    m_lastStreamCenter = center;
+    m_streamingInProgress = true;
+    m_loadQueue.clear();
+    m_loadQueueCursor = 0;
+    m_loadQueue.reserve(static_cast<size_t>(loadSq) * 4 * WORLD_Y_CHUNKS);
 
-        for (int dz = -loadRadius; dz <= loadRadius; ++dz) {
-            for (int dx = -loadRadius; dx <= loadRadius; ++dx) {
-                int dsq = dx * dx + dz * dz;
-                if (dsq > loadSq) continue;                    // circular disc
-                for (int cy = 0; cy < WORLD_Y_CHUNKS; ++cy) {
-                    m_loadQueue.emplace_back(center.x + dx, cy, center.z + dz);
-                }
+    // Disc of (dx, dz) offsets, all Y levels per column.
+    for (int dz = -loadRadius; dz <= loadRadius; ++dz) {
+        for (int dx = -loadRadius; dx <= loadRadius; ++dx) {
+            if (dx * dx + dz * dz > loadSq) continue;       // circular disc
+            for (int cy = 0; cy < WORLD_Y_CHUNKS; ++cy) {
+                m_loadQueue.emplace_back(center.x + dx, cy, center.z + dz);
             }
         }
-        std::sort(m_loadQueue.begin(), m_loadQueue.end(),
-                  [&](const glm::ivec3& a, const glm::ivec3& b) {
-                      int da = (a.x - center.x) * (a.x - center.x)
-                             + (a.z - center.z) * (a.z - center.z);
-                      int db = (b.x - center.x) * (b.x - center.x)
-                             + (b.z - center.z) * (b.z - center.z);
-                      if (da != db) return da < db;
-                      return a.y < b.y;                        // lower chunks first
-                  });
-    } else if (!m_streamingInProgress) {
-        // Fully streamed around this centre; nothing to do.
-        return;
     }
 
-    // 1) Unload chunks outside the circular hysteresis radius.
+    // Nearest-first so the player sees the closest chunks materialise first.
+    std::sort(m_loadQueue.begin(), m_loadQueue.end(),
+              [&](const glm::ivec3& a, const glm::ivec3& b) {
+                  int da = (a.x - center.x) * (a.x - center.x)
+                         + (a.z - center.z) * (a.z - center.z);
+                  int db = (b.x - center.x) * (b.x - center.x)
+                         + (b.z - center.z) * (b.z - center.z);
+                  if (da != db) return da < db;
+                  return a.y < b.y;                          // lower chunks first
+              });
+}
+
+void WorldRenderer::unloadFarChunks(const glm::ivec3& center, int unloadSq) {
     for (auto it = m_chunkBuffers.begin(); it != m_chunkBuffers.end(); ) {
         const glm::ivec3& p = it->first;
         int dx = p.x - center.x;
@@ -149,60 +182,10 @@ void WorldRenderer::updateStreaming(const glm::vec3& cameraPos, int renderDistan
             ++it;
         }
     }
+}
 
-    // Helper: rebuild the mesh and upload GPU buffers for a chunk.
-    auto uploadChunk = [&](const glm::ivec3& cpos) {
-        Chunk* chunk = m_world->getChunk(cpos);
-        if (!chunk) return;
-        chunk->setDirty(true);
-        chunk->generateMesh(m_world.get());
-
-        const auto& vertices  = chunk->getVertices();
-        const auto& indices   = chunk->getIndices();
-        const auto& wVertices = chunk->getWaterVertices();
-        const auto& wIndices  = chunk->getWaterIndices();
-
-        ChunkBuffers cb;
-        if (!vertices.empty() && !indices.empty()) {
-            cb.indexCount = static_cast<uint32_t>(indices.size());
-            cb.vertex = std::make_unique<Buffer>();
-            if (cb.vertex->init(*m_device,
-                                vertices.size() * sizeof(VoxelVertex),
-                                VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
-                cb.vertex->copyData(vertices.data(), vertices.size() * sizeof(VoxelVertex));
-            }
-            cb.index = std::make_unique<Buffer>();
-            if (cb.index->init(*m_device,
-                               indices.size() * sizeof(uint32_t),
-                               VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
-                cb.index->copyData(indices.data(), indices.size() * sizeof(uint32_t));
-            }
-        }
-        if (!wVertices.empty() && !wIndices.empty()) {
-            cb.waterIndexCount = static_cast<uint32_t>(wIndices.size());
-            cb.waterVertex = std::make_unique<Buffer>();
-            if (cb.waterVertex->init(*m_device,
-                                     wVertices.size() * sizeof(VoxelVertex),
-                                     VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
-                cb.waterVertex->copyData(wVertices.data(), wVertices.size() * sizeof(VoxelVertex));
-            }
-            cb.waterIndex = std::make_unique<Buffer>();
-            if (cb.waterIndex->init(*m_device,
-                                    wIndices.size() * sizeof(uint32_t),
-                                    VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
-                cb.waterIndex->copyData(wIndices.data(), wIndices.size() * sizeof(uint32_t));
-            }
-        }
-        m_chunkBuffers[cpos] = std::move(cb);
-    };
-
-    // 2) Pop a small batch of the nearest un-loaded chunks from the queue.
-    // The queue is pre-sorted (nearest first) so the player sees the closest
-    // chunks materialise first without blocking the main thread.
+void WorldRenderer::streamNextBatch() {
+    // Cap per-frame work so the main thread stays responsive.
     constexpr int kMaxNewPerFrame = 8;
     int newlyCreated = 0;
 
@@ -214,7 +197,7 @@ void WorldRenderer::updateStreaming(const glm::vec3& cameraPos, int renderDistan
 
     while (m_loadQueueCursor < m_loadQueue.size() && newlyCreated < kMaxNewPerFrame) {
         const glm::ivec3 cpos = m_loadQueue[m_loadQueueCursor++];
-        if (m_chunkBuffers.count(cpos)) continue;  // already loaded (e.g. neighbour upload)
+        if (m_chunkBuffers.count(cpos)) continue;            // already loaded
 
         Chunk* chunk = m_world->getChunk(cpos);
         if (!chunk) {
@@ -233,14 +216,38 @@ void WorldRenderer::updateStreaming(const glm::vec3& cameraPos, int renderDistan
         }
     }
 
+    // Mark the streaming pass complete once the queue is fully drained.
     if (m_loadQueueCursor >= m_loadQueue.size()) {
         m_streamingInProgress = false;
         m_loadQueue.clear();
         m_loadQueue.shrink_to_fit();
         m_loadQueueCursor = 0;
     }
+}
 
-    // 3) Recompute statistics.
+void WorldRenderer::updateStreaming(const glm::vec3& cameraPos, int renderDistance) {
+    if (!m_world) return;
+
+    // Streaming is XZ-only; drop the Y component from the camera's chunk coord.
+    glm::ivec3 center = Chunk::worldToChunkCoord(cameraPos);
+    center.y = 0;
+    const int loadRadius   = renderDistance;
+    const int unloadRadius = renderDistance + 1;
+
+    // Rebuild the nearest-first load queue whenever the centre moves.
+    if (center != m_lastStreamCenter) {
+        rebuildLoadQueue(center, loadRadius);
+    } else if (!m_streamingInProgress) {
+        // Fully streamed around this centre; nothing to do.
+        return;
+    }
+
+    unloadFarChunks(center, unloadRadius * unloadRadius);
+    streamNextBatch();
+    recomputeStats();
+}
+
+void WorldRenderer::recomputeStats() {
     m_totalVertices = 0;
     m_totalTriangles = 0;
     for (const auto& kv : m_chunkBuffers) {
@@ -255,16 +262,7 @@ void WorldRenderer::updateStreaming(const glm::vec3& cameraPos, int renderDistan
     }
 }
 
-void WorldRenderer::updateUniforms(uint32_t imageIndex, const Camera& camera) {
-    UniformBufferObject ubo{};
-    ubo.model = glm::mat4(1.0f);
-    ubo.view = camera.getViewMatrix();
-    ubo.proj = camera.getProjectionMatrix();
-    ubo.proj[1][1] *= -1;  // Vulkan Y-flip
-
-    // Gribb-Hartmann frustum extraction from the un-flipped projection so the
-    // planes live in world space (the Y-flip only matters in clip space).
-    glm::mat4 vp = camera.getProjectionMatrix() * camera.getViewMatrix();
+void WorldRenderer::extractFrustumPlanes(const glm::mat4& vp) {
     // glm is column-major: row i = (vp[0][i], vp[1][i], vp[2][i], vp[3][i]).
     auto setPlane = [&](int idx, float nx, float ny, float nz, float d) {
         float len = std::sqrt(nx * nx + ny * ny + nz * nz);
@@ -281,8 +279,20 @@ void WorldRenderer::updateUniforms(uint32_t imageIndex, const Camera& camera) {
     setPlane(3, vp[0][3] - vp[0][1], vp[1][3] - vp[1][1], vp[2][3] - vp[2][1], vp[3][3] - vp[3][1]);
     // Near (Vulkan z 0..1): row2
     setPlane(4, vp[0][2], vp[1][2], vp[2][2], vp[3][2]);
-    // Far:   row3 - row2
+    // Far:    row3 - row2
     setPlane(5, vp[0][3] - vp[0][2], vp[1][3] - vp[1][2], vp[2][3] - vp[2][2], vp[3][3] - vp[3][2]);
+}
+
+void WorldRenderer::updateUniforms(uint32_t imageIndex, const Camera& camera) {
+    UniformBufferObject ubo{};
+    ubo.model = glm::mat4(1.0f);
+    ubo.view  = camera.getViewMatrix();
+    ubo.proj  = camera.getProjectionMatrix();
+    ubo.proj[1][1] *= -1;  // Vulkan Y-flip
+
+    // Frustum is extracted from the un-flipped VP so planes live in world space
+    // (the Y-flip only matters in clip space).
+    extractFrustumPlanes(camera.getProjectionMatrix() * camera.getViewMatrix());
 
     void* data;
     vkMapMemory(m_logicalDevice, m_uniformBuffers[imageIndex]->getMemory(), 0, sizeof(ubo), 0, &data);

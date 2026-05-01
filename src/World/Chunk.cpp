@@ -3,12 +3,32 @@
 #include "utils/BitUtils.hpp"
 #include <cstring>
 #include <cstdint>
+#include <cmath>
 #include <array>
 #include <unordered_map>
 
 Chunk::Chunk(const glm::ivec3& position) 
     : m_position(position) {
     std::memset(m_voxels.data(), VoxelTypes::AIR, CHUNK_VOLUME);
+}
+
+glm::ivec3 Chunk::worldToChunkCoord(const glm::ivec3& worldBlock) {
+    // Floor-division by CHUNK_SIZE so negative coordinates land in the correct chunk.
+    auto floorDiv = [](int a, int b) -> int {
+        return a >= 0 ? a / b : (a - b + 1) / b;
+    };
+    return {
+        floorDiv(worldBlock.x, CHUNK_SIZE),
+        floorDiv(worldBlock.y, CHUNK_SIZE),
+        floorDiv(worldBlock.z, CHUNK_SIZE),
+    };
+}
+
+glm::ivec3 Chunk::worldToChunkCoord(const glm::vec3& worldPos) {
+    return worldToChunkCoord(glm::ivec3(
+        static_cast<int>(std::floor(worldPos.x)),
+        static_cast<int>(std::floor(worldPos.y)),
+        static_cast<int>(std::floor(worldPos.z))));
 }
 
 VoxelType Chunk::getVoxel(int x, int y, int z) const {

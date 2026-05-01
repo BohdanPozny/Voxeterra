@@ -8,8 +8,7 @@ class UIElement;
 enum class GameState {
     MAIN_MENU,
     PLAYING,
-    PAUSED,
-    SETTINGS
+    PAUSED
 };
 
 class IGameState {
