@@ -1,7 +1,7 @@
 {
   "controls": {
     "mouseSensitivity": 0.10000000149011612,
-    "movementSpeed": 10.0
+    "movementSpeed": 50.0
   },
   "graphics": {
     "fov": 70.0,
