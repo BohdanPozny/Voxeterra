@@ -1,0 +1,18 @@
+{
+  "controls": {
+    "mouseSensitivity": 0.10000000149011612,
+    "movementSpeed": 10.0
+  },
+  "graphics": {
+    "fov": 70.0,
+    "fullscreen": false,
+    "renderDistance": 32,
+    "vsync": true,
+    "windowHeight": 1080,
+    "windowWidth": 1920
+  },
+  "ui": {
+    "font": "fonts/default.ttf",
+    "fontSize": 16
+  }
+}
