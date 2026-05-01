@@ -117,4 +117,23 @@ private:
     bool createUniformBuffers();
     bool createDescriptorPool();
     bool createDescriptorSets();
+
+    // Re-mesh the chunk at cpos and (re)upload its vertex/index buffers.
+    void uploadChunk(const glm::ivec3& cpos);
+
+    // Walk loaded chunks and refresh m_totalVertices / m_totalTriangles.
+    void recomputeStats();
+
+    // Rebuild m_loadQueue (circular disc, nearest-first) around the new centre.
+    void rebuildLoadQueue(const glm::ivec3& center, int loadRadius);
+
+    // Drop chunks whose XZ distance exceeds the hysteresis radius.
+    void unloadFarChunks(const glm::ivec3& center, int unloadSq);
+
+    // Pop up to kMaxNewPerFrame entries from m_loadQueue, generate + upload
+    // each chunk, and re-mesh already-loaded neighbours to fix shared borders.
+    void streamNextBatch();
+
+    // Gribb-Hartmann frustum-plane extraction from the un-flipped VP matrix.
+    void extractFrustumPlanes(const glm::mat4& vp);
 };

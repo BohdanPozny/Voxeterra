@@ -1,0 +1,169 @@
+@startuml class_diagram
+scale 0.8
+title Рисунок 2.3 – Діаграма класів системи Voxterra
+
+skinparam defaultFontName "Times New Roman"
+skinparam defaultFontSize 12
+skinparam monochrome true
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+
+hide circle
+
+class Engine {
+  - m_window: Window
+  - m_renderer: Renderer
+  - m_worldRenderer: WorldRenderer
+  - m_camera: Camera
+  - m_input: InputManager
+  - m_stateManager: StateManager
+  - m_config: Config
+  - m_uiRenderer: UIRenderer
+  - m_isRunning: bool
+  + init(): bool
+  + run(): void
+  - mainLoop(): void
+  - drawFrame(): void
+}
+
+class Window {
+  - width: int
+  - height: int
+  - m_window: unique_ptr<GLFWwindow>
+  - m_framebufferResized: bool
+  + init(w: int, h: int, name: string): bool
+  + shouldClose(): bool
+  + createWindowSurface(instance: VkInstance, surface: VkSurfaceKHR*): bool
+}
+
+class Renderer {
+  - m_instance: Instance
+  - m_device: Device
+  - m_swapchain: Swapchain
+  - m_renderPass: RenderPass
+  - m_frameSync: FrameSync
+  - m_commandPool: CommandPool
+  + init(window: Window): bool
+  + beginFrame(window: Window, outIndex: uint32_t*): VkCommandBuffer
+  + endFrame(window: Window, index: uint32_t): void
+}
+
+class WorldRenderer {
+  - m_pipeline: Pipeline
+  - m_waterPipeline: Pipeline
+  - m_world: unique_ptr<World>
+  - m_chunkBuffers: map<ivec3, ChunkBuffers>
+  + init(device: Device, renderPass: VkRenderPass): bool
+  + updateStreaming(pos: vec3, dist: int): void
+  + render(cmd: VkCommandBuffer, index: uint32_t): void
+}
+
+class World {
+  - m_chunks: map<ivec3, unique_ptr<Chunk>>
+  + getChunk(pos: ivec3): Chunk*
+  + setVoxel(x, y, z, type): void
+  + generateChunkData(chunk: Chunk*): void
+}
+
+class Chunk {
+  - m_position: ivec3
+  - m_voxels: array<VoxelType>
+  - m_isDirty: bool
+  + generateMesh(world: World*): void
+  + setVoxel(x, y, z, type): void
+}
+
+class StateManager {
+  - m_states: map<GameState, unique_ptr<IGameState>>
+  - m_currentState: GameState
+  + registerState(state: GameState, obj: unique_ptr<IGameState>): void
+  + changeState(newState: GameState): void
+  + update(deltaTime: float): void
+}
+
+abstract class IGameState {
+  + {abstract} onEnter(): void
+  + {abstract} onExit(): void
+  + {abstract} update(dt: float): void
+  + {abstract} render(): void
+  + {abstract} handleInput(): void
+}
+
+class PlayingState {
+  - m_engine: Engine*
+  - m_hudPanel: unique_ptr<UIPanel>
+  + update(dt: float): void
+  + render(): void
+}
+
+class MainMenuState {
+  - m_engine: Engine*
+  - m_menuPanel: unique_ptr<UIPanel>
+  + update(dt: float): void
+}
+
+class UIElement {
+  # m_position: vec2
+  # m_size: vec2
+  # m_children: vector<unique_ptr<UIElement>>
+  + {abstract} update(dt: float): void
+  + {abstract} render(): void
+  + addChild(child: unique_ptr<UIElement>): void
+}
+
+class UIPanel {
+  + update(dt: float): void
+  + render(): void
+}
+
+class UIButton {
+  - m_label: string
+  + update(dt: float): void
+}
+
+class InputManager {
+  - m_keysCurrent: map<int, bool>
+  - m_mousePos: vec2
+  + init(window: GLFWwindow*): void
+  + isKeyPressed(key: int): bool
+  + getMouseDelta(): vec2
+}
+
+class Camera {
+  - m_position: vec3
+  - m_yaw: float
+  - m_pitch: float
+  + getViewMatrix(): mat4
+  + processKeyboard(dir: int, dt: float): void
+}
+
+' Relations
+Engine *-- Window
+Engine *-- Renderer
+Engine *-- WorldRenderer
+Engine *-- StateManager
+Engine *-- Camera
+Engine *-- InputManager
+
+Renderer *-- Instance
+Renderer *-- Device
+Renderer *-- Swapchain
+Renderer *-- RenderPass
+Renderer *-- FrameSync
+
+WorldRenderer o-- World
+World *-- Chunk
+
+IGameState <|-- PlayingState
+IGameState <|-- MainMenuState
+StateManager o-- IGameState
+
+UIElement <|-- UIPanel
+UIElement <|-- UIButton
+UIPanel *-- UIElement
+
+PlayingState o-- Engine
+MainMenuState o-- Engine
+
+@enduml

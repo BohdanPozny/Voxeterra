@@ -65,7 +65,11 @@ PlayingState::PlayingState(Engine* engine)
 }
 
 void PlayingState::onEnter() {
-    std::cout << "[PlayingState] Entering game..." << std::endl;
+    // Clear any stale transition request from a previous visit (e.g. the
+    // pause() call that took us into PausedState last time).
+    m_shouldChangeState = false;
+    m_nextState = GameState::PLAYING;
+
     // Capture the cursor for FPS-style camera control.
     if (m_engine && m_engine->getWindow().getWindow()) {
         glfwSetInputMode(m_engine->getWindow().getWindow(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
@@ -110,8 +114,8 @@ void PlayingState::update(float deltaTime) {
         }
     }
     
-    // ESC opens the pause menu.
-    if (glfwGetKey(m_engine->getWindow().getWindow(), GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+    // ESC opens the pause menu (edge-triggered so a held key fires once).
+    if (m_engine->getInput().isKeyPressed(GLFW_KEY_ESCAPE)) {
         pause();
     }
 

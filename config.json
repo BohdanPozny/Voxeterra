@@ -13,8 +13,8 @@
     "fullscreen": false,
     "renderDistance": 32,
     "vsync": true,
-    "windowHeight": 900,
-    "windowWidth": 1600
+    "windowHeight": 1080,
+    "windowWidth": 1920
   },
   "ui": {
     "font": "fonts/default.ttf",

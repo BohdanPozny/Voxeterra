@@ -55,16 +55,14 @@ void MainMenuState::createUI() {
 }
 
 void MainMenuState::onEnter() {
-    std::cout << "[MainMenuState] Entering main menu with UI" << std::endl;
-    std::cout << "=== VOXTERRA MAIN MENU ===" << std::endl;
-    std::cout << "Click in the CENTER of window:" << std::endl;
-    std::cout << "  - Upper area = NEW GAME (green)" << std::endl;
-    std::cout << "  - Lower area = EXIT (red)" << std::endl;
-    
+    // Clear any stale transition request from a previous visit.
+    m_shouldChangeState = false;
+    m_nextState = GameState::MAIN_MENU;
+
     // Menu needs a visible cursor for button clicks.
     if (m_engine && m_engine->getWindow().getWindow()) {
         glfwSetInputMode(m_engine->getWindow().getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
-        glfwSetWindowTitle(m_engine->getWindow().getWindow(), "Voxterra - MAIN MENU (Click center: top=Play, bottom=Exit)");
+        glfwSetWindowTitle(m_engine->getWindow().getWindow(), "Voxterra");
     }
 }
 

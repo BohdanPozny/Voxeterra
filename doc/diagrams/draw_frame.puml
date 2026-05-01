@@ -1,0 +1,49 @@
+@startuml drawFrame
+title Рисунок 2.1а – Блок-схема підпрограми Engine::drawFrame
+skinparam defaultFontName "Times New Roman"
+skinparam defaultFontSize 13
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityBorderColor #000000
+skinparam ArrowColor #000000
+skinparam ActivityDiamondBackgroundColor #FFFFFF
+skinparam ActivityDiamondBorderColor #000000
+
+' Викликається з головного циклу Engine::mainLoop
+' (див. файл engine_loop.puml, рисунок 2.1)
+
+start
+#LightBlue:Вхід з Engine::mainLoop
+(див. рисунок 2.1);
+:m_frameSync.waitForFence(m_currentFrame);
+:result := vkAcquireNextImageKHR(...);
+if (result == VK_ERROR_OUT_OF_DATE_KHR?) then (так)
+  :recreateSwapchain();
+  #pink:return (пропустити кадр);
+  stop
+else (ні)
+endif
+if (result != SUCCESS AND result != SUBOPTIMAL_KHR?) then (так)
+  #pink:log error, return;
+  stop
+else (ні)
+endif
+:m_worldRenderer.updateUniforms(
+  imageIndex, m_camera);
+:m_frameSync.resetFence(m_currentFrame);
+:vkResetCommandBuffer(cb);
+:recordCommandBuffer(cb, imageIndex);
+:vkQueueSubmit(graphicsQueue, cb,
+  fence[m_currentFrame]);
+:result := vkQueuePresentKHR(presentQueue);
+if (result == OUT_OF_DATE OR SUBOPTIMAL
+    OR m_window.wasResized()?) then (так)
+  :m_window.resetResizedFlag()
+  recreateSwapchain();
+else (ні)
+endif
+:m_currentFrame := (m_currentFrame + 1)
+  % MAX_FRAMES_IN_FLIGHT;
+#LightBlue:Повернення до Engine::mainLoop
+(див. рисунок 2.1);
+stop
+@enduml

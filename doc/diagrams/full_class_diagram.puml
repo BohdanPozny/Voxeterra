@@ -1,0 +1,252 @@
+@startuml full_class_diagram
+scale 0.5
+title Повна діаграма класів системи Voxterra
+
+skinparam defaultFontName "Times New Roman"
+skinparam defaultFontSize 12
+skinparam monochrome true
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+hide circle
+
+' === Core ===
+class Engine {
+  - m_window : Window
+  - m_renderer : Renderer
+  - m_worldRenderer : WorldRenderer
+  - m_camera : Camera
+  - m_stateManager : StateManager
+  - m_uiRenderer : UIRenderer
+  - m_input : InputManager
+  - m_isRunning : bool
+  + init() : bool
+  + run() : void
+  - mainLoop() : void
+  - drawFrame() : void
+}
+
+class Window {
+  - m_window : GLFWwindow*
+  - m_width : int
+  - m_height : int
+  + init() : bool
+  + shouldClose() : bool
+  + swapBuffers() : void
+}
+
+class Config {
+  + windowWidth : int
+  + windowHeight : int
+  + renderDistance : int
+  + load() : void
+}
+
+class Camera {
+  - m_position : vec3
+  - m_front : vec3
+  - m_up : vec3
+  + getViewMatrix() : mat4
+  + processKeyboard() : void
+  + processMouse() : void
+}
+
+class InputManager {
+  + isKeyPressed(key) : bool
+  + getMousePosition() : vec2
+}
+
+' === States ===
+class StateManager {
+  - m_states : stack<IGameState>
+  + pushState(state) : void
+  + popState() : void
+  + update() : void
+  + render() : void
+}
+
+interface IGameState {
+  + update(dt) : void
+  + render() : void
+  + onEnter() : void
+  + onExit() : void
+}
+
+class MainMenuState {
+  - m_uiPanel : UIPanel
+  + update(dt) : void
+  + render() : void
+}
+
+class PlayingState {
+  - m_world : World
+  + update(dt) : void
+  + render() : void
+}
+
+class PausedState {
+  - m_uiPanel : UIPanel
+  + update(dt) : void
+  + render() : void
+}
+
+' === UI ===
+class UIRenderer {
+  - m_pipeline2D : Pipeline2D
+  + drawElement(el) : void
+}
+
+abstract class UIElement {
+  # m_position : vec2
+  # m_size : vec2
+  + draw() : void
+  + update() : void
+}
+
+class UIPanel {
+  - m_children : vector<UIElement*>
+  + addChild(el) : void
+  + draw() : void
+}
+
+class UIButton {
+  - m_text : string
+  - m_isPressed : bool
+  + draw() : void
+}
+
+class UILabel {
+  - m_text : string
+  + draw() : void
+}
+
+' === World ===
+class World {
+  - m_chunks : map<ivec3, Chunk*>
+  + getChunk(pos) : Chunk*
+  + setVoxel(pos, type) : void
+}
+
+class Chunk {
+  - m_voxels : Voxel[]
+  - m_mesh : Buffer
+  + generateMesh() : void
+  + render() : void
+}
+
+struct Voxel {
+  + type : uint8_t
+}
+
+class WorldRenderer {
+  - m_pipeline : Pipeline
+  + updateStreaming(camPos) : void
+  + render(world) : void
+}
+
+' === Vulkan (Renderer) ===
+class Renderer {
+  - m_instance : Instance
+  - m_device : Device
+  - m_swapchain : Swapchain
+  - m_renderPass : RenderPass
+  - m_frameSync : FrameSync
+  - m_commandPool : CommandPool
+  + init() : bool
+  + beginFrame() : void
+  + endFrame() : void
+}
+
+class Instance {
+  - m_instance : VkInstance
+  + init() : bool
+}
+
+class Device {
+  - m_physicalDevice : VkPhysicalDevice
+  - m_logicalDevice : VkDevice
+  + init() : bool
+}
+
+class Swapchain {
+  - m_swapchain : VkSwapchainKHR
+  + init() : bool
+}
+
+class RenderPass {
+  - m_renderPass : VkRenderPass
+  + init() : bool
+}
+
+class Framebuffer {
+  - m_framebuffers : vector<VkFramebuffer>
+}
+
+class CommandPool {
+  - m_commandPool : VkCommandPool
+}
+
+class FrameSync {
+  - m_imageAvailableSemaphores : vector<VkSemaphore>
+}
+
+class Pipeline {
+  - m_pipeline : VkPipeline
+}
+
+class Pipeline2D {
+  - m_pipeline : VkPipeline
+}
+
+class Buffer {
+  - m_buffer : VkBuffer
+  - m_memory : VkDeviceMemory
+}
+
+class DepthBuffer {
+  - m_image : VkImage
+}
+
+class Shader {
+  - m_shaderModule : VkShaderModule
+}
+
+class TextRenderer {
+  + drawText(text, pos) : void
+}
+
+' === Relationships ===
+Engine *-- Window
+Engine *-- Renderer
+Engine *-- WorldRenderer
+Engine *-- Camera
+Engine *-- StateManager
+Engine *-- UIRenderer
+Engine *-- InputManager
+
+Renderer *-- Instance
+Renderer *-- Device
+Renderer *-- Swapchain
+Renderer *-- RenderPass
+Renderer *-- FrameSync
+Renderer *-- CommandPool
+
+StateManager o-- IGameState
+IGameState <|.. MainMenuState
+IGameState <|.. PlayingState
+IGameState <|.. PausedState
+
+PlayingState *-- World
+World *-- Chunk
+Chunk *-- Voxel
+WorldRenderer *-- Pipeline
+
+UIElement <|.. UIPanel
+UIElement <|.. UIButton
+UIElement <|.. UILabel
+UIPanel *-- UIElement
+MainMenuState *-- UIPanel
+PausedState *-- UIPanel
+UIRenderer *-- Pipeline2D
+
+@enduml

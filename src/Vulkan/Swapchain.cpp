@@ -7,6 +7,7 @@
 #include <vulkan/vulkan_core.h>
 #include "Vulkan/Device.hpp"
 #include "Window.hpp"
+#include "Config.hpp"
 
 Swapchain::~Swapchain() noexcept {
     cleanup();
@@ -98,9 +99,18 @@ VkSurfaceFormatKHR Swapchain::chooseSurfaceFormat(std::vector<VkSurfaceFormatKHR
 }
 
 VkPresentModeKHR Swapchain::choosePresentMode(std::vector<VkPresentModeKHR>& avaiblePresentModes) {
+    if (Config::get().graphics.vsync) {
+        return VK_PRESENT_MODE_FIFO_KHR; // VSync ON
+    }
+
     for (const auto& avaiblePresentMode:avaiblePresentModes) {
         if (avaiblePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-            return avaiblePresentMode;
+            return avaiblePresentMode; // VSync OFF (triple buffering)
+        }
+    }
+    for (const auto& avaiblePresentMode:avaiblePresentModes) {
+        if (avaiblePresentMode == VK_PRESENT_MODE_IMMEDIATE_KHR) {
+            return avaiblePresentMode; // VSync OFF (tearing)
         }
     }
 

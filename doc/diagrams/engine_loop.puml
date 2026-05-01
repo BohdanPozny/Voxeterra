@@ -1,0 +1,40 @@
+@startuml engine_loop
+title Рисунок 2.1 – Блок-схема алгоритму головного циклу Engine::mainLoop
+skinparam defaultFontName "Times New Roman"
+skinparam defaultFontSize 13
+skinparam ActivityBackgroundColor #FFFFFF
+skinparam ActivityBorderColor #000000
+skinparam ArrowColor #000000
+
+start
+:lastFrame := 0;
+
+label loop_start
+if (m_window.shouldClose() == true\nАБО\nm_isRunning == false?) then (так)
+  :vkDeviceWaitIdle(logicalDevice);
+  stop
+else (ні)
+  :now := glfwGetTime()
+  deltaTime := now - lastFrame
+  lastFrame := now;
+  
+  :glfwPollEvents()
+  m_input.beginFrame()
+  m_stateManager.handleInput()
+  m_stateManager.update(deltaTime);
+  
+  :current := m_stateManager.getState();
+  
+  if (current != nullptr\nТА\ncurrent->shouldRenderWorld() == true?) then (так)
+    :processInput(deltaTime)
+    (рух камери, миша);
+  else (ні)
+  endif
+  
+  :drawFrame();
+  
+  :m_stateManager.render();
+  
+  goto loop_start
+endif
+@enduml
