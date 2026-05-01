@@ -19,7 +19,7 @@ private:
     VkDevice m_deviceHandle;
 
     VkSurfaceFormatKHR chooseSurfaceFormat(std::vector<VkSurfaceFormatKHR>& avaibleFormats);
-    VkPresentModeKHR choosePresentMode(std::vector<VkPresentModeKHR>& avaiblePresetModes);
+    VkPresentModeKHR choosePresentMode(std::vector<VkPresentModeKHR>& avaiblePresetModes, bool vsync);
     VkExtent2D chooseExtent(VkSurfaceCapabilitiesKHR& capabilities, Window& window);
 
     void createImageViews();
@@ -31,7 +31,7 @@ public:
     Swapchain(const Swapchain&) = delete;
     Swapchain& operator=(const Swapchain&) = delete;
 
-    bool init(Device& device, Window& window, VkSurfaceKHR m_surface) noexcept;
+    bool init(Device& device, Window& window, VkSurfaceKHR m_surface, bool vsync) noexcept;
     void cleanup() noexcept;
 
     VkSwapchainKHR getSwapchain() { return m_swapchain; }
