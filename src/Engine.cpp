@@ -45,7 +45,7 @@ bool Engine::initWindow() {
 }
 
 bool Engine::initVulkan() {
-    if (!m_renderer.init(m_window)) {
+    if (!m_renderer.init(m_window, m_config.isVsync())) {
         std::cerr << "[Engine] Failed to initialize Renderer" << std::endl;
         return false;
     }

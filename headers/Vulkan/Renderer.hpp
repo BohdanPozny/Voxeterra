@@ -29,6 +29,7 @@ private:
     uint32_t m_currentFrame = 0;
 
     bool m_isFrameStarted = false;
+    bool m_vsync = true;
 
     void recreateSwapchain(Window& window);
 
@@ -39,7 +40,7 @@ public:
     Renderer(const Renderer&) = delete;
     Renderer& operator=(const Renderer&) = delete;
 
-    bool init(Window& window);
+    bool init(Window& window, bool vsync);
     void cleanup();
 
     // Frame lifecycle

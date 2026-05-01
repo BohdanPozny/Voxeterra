@@ -7,7 +7,6 @@
 #include <vulkan/vulkan_core.h>
 #include "Vulkan/Device.hpp"
 #include "Window.hpp"
-#include "Config.hpp"
 
 Swapchain::~Swapchain() noexcept {
     cleanup();
@@ -29,7 +28,7 @@ void Swapchain::cleanup() noexcept {
     }
 }
 
-bool Swapchain::init(Device& device, Window& window, VkSurfaceKHR m_surface) noexcept {
+bool Swapchain::init(Device& device, Window& window, VkSurfaceKHR m_surface, bool vsync) noexcept {
     m_deviceHandle = device.getLogicalDevice();
 
     VkSurfaceCapabilitiesKHR capabilities;
@@ -46,7 +45,7 @@ bool Swapchain::init(Device& device, Window& window, VkSurfaceKHR m_surface) noe
     vkGetPhysicalDeviceSurfacePresentModesKHR(device.getPhysicalDevice(), m_surface, &presentModeCount, presentModes.data());
 
     VkSurfaceFormatKHR surfaceFormat = chooseSurfaceFormat(formats);
-    VkPresentModeKHR presentMode = choosePresentMode(presentModes);
+    VkPresentModeKHR presentMode = choosePresentMode(presentModes, vsync);
     VkExtent2D extent = chooseExtent(capabilities, window);
 
     uint32_t imageCount = capabilities.minImageCount + 1;
@@ -98,8 +97,8 @@ VkSurfaceFormatKHR Swapchain::chooseSurfaceFormat(std::vector<VkSurfaceFormatKHR
     return avaibleFormats[0];
 }
 
-VkPresentModeKHR Swapchain::choosePresentMode(std::vector<VkPresentModeKHR>& avaiblePresentModes) {
-    if (Config::get().graphics.vsync) {
+VkPresentModeKHR Swapchain::choosePresentMode(std::vector<VkPresentModeKHR>& avaiblePresentModes, bool vsync) {
+    if (vsync) {
         return VK_PRESENT_MODE_FIFO_KHR; // VSync ON
     }
 

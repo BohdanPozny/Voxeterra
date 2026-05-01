@@ -6,7 +6,8 @@ Renderer::~Renderer() noexcept {
     cleanup();
 }
 
-bool Renderer::init(Window& window) {
+bool Renderer::init(Window& window, bool vsync) {
+    m_vsync = vsync;
     if (!m_instance.init("Voxterra")) {
         std::cerr << "[Renderer] Failed to create Vulkan instance" << std::endl;
         return false;
@@ -20,7 +21,7 @@ bool Renderer::init(Window& window) {
         return false;
     }
 
-    if (!m_swapchain.init(m_device, window, m_surface)) {
+    if (!m_swapchain.init(m_device, window, m_surface, m_vsync)) {
         std::cerr << "[Renderer] Failed to create swapchain" << std::endl;
         return false;
     }
@@ -94,7 +95,7 @@ void Renderer::recreateSwapchain(Window& window) {
     m_depthBuffer.cleanup();
     m_swapchain.cleanup();
 
-    if (!m_swapchain.init(m_device, window, m_surface) ||
+    if (!m_swapchain.init(m_device, window, m_surface, m_vsync) ||
         !m_depthBuffer.init(m_device, m_swapchain.getExtent()) ||
         !m_framebuffer.init(m_device.getLogicalDevice(),
                             m_renderPass.getRenderPass(),
