@@ -8,10 +8,10 @@
 // Hash specialization for glm::ivec3 keys.
 struct IVec3Hash {
     std::size_t operator()(const glm::ivec3& v) const {
-        std::size_t h1 = std::hash<int>{}(v.x);
-        std::size_t h2 = std::hash<int>{}(v.y);
-        std::size_t h3 = std::hash<int>{}(v.z);
-        return h1 ^ (h2 << 1) ^ (h3 << 2);
+        // std::hash<int> is the identity on libstdc++, so mix with large primes.
+        return (static_cast<std::size_t>(v.x) * 73856093u) ^
+               (static_cast<std::size_t>(v.y) * 19349663u) ^
+               (static_cast<std::size_t>(v.z) * 83492791u);
     }
 };
 
@@ -38,13 +38,8 @@ public:
     // Deterministic terrain generator seeded by chunk coordinates.
     void generateChunkData(Chunk* chunk);
 
-    // No-op with streaming enabled; retained for backward compatibility.
-    void generateTestWorld();
-
     // Release a chunk's memory.
     void removeChunk(const glm::ivec3& position);
 
-    // Rebuild meshes for every dirty chunk.
-    void updateChunks();
     const auto& getChunks() const { return m_chunks; }
 };

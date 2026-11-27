@@ -25,6 +25,7 @@ pkgs.mkShell {
     # Debugging
     gdb
     valgrind
+    tracy
     git
 
     # Wayland

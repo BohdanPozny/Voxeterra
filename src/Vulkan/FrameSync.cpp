@@ -5,11 +5,10 @@ FrameSync::~FrameSync() {
     cleanup();
 }
 
-bool FrameSync::init(VkDevice device, uint32_t maxFramesInFlight) {
+bool FrameSync::init(VkDevice device, uint32_t maxFramesInFlight, uint32_t imageCount) {
     m_device = device;
 
     m_imageAvailable.resize(maxFramesInFlight, VK_NULL_HANDLE);
-    m_renderFinished.resize(maxFramesInFlight, VK_NULL_HANDLE);
     m_inFlightFences.resize(maxFramesInFlight, VK_NULL_HANDLE);
 
     VkSemaphoreCreateInfo semaphoreInfo{};
@@ -21,14 +20,35 @@ bool FrameSync::init(VkDevice device, uint32_t maxFramesInFlight) {
 
     for (uint32_t i = 0; i < maxFramesInFlight; ++i) {
         if (vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_imageAvailable[i]) != VK_SUCCESS ||
-            vkCreateSemaphore(device, &semaphoreInfo, nullptr, &m_renderFinished[i]) != VK_SUCCESS ||
             vkCreateFence(device, &fenceInfo, nullptr, &m_inFlightFences[i]) != VK_SUCCESS) {
             std::cerr << "[FrameSync] Failed to create sync objects for frame " << i << std::endl;
             return false;
         }
     }
 
+    return recreateRenderFinished(imageCount);
+}
+
+bool FrameSync::recreateRenderFinished(uint32_t imageCount) {
+    destroyRenderFinished();
+    m_renderFinished.resize(imageCount, VK_NULL_HANDLE);
+
+    VkSemaphoreCreateInfo semaphoreInfo{};
+    semaphoreInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    for (auto& sem : m_renderFinished) {
+        if (vkCreateSemaphore(m_device, &semaphoreInfo, nullptr, &sem) != VK_SUCCESS) {
+            std::cerr << "[FrameSync] Failed to create render-finished semaphore" << std::endl;
+            return false;
+        }
+    }
     return true;
+}
+
+void FrameSync::destroyRenderFinished() {
+    for (auto& sem : m_renderFinished) {
+        if (sem != VK_NULL_HANDLE) vkDestroySemaphore(m_device, sem, nullptr);
+    }
+    m_renderFinished.clear();
 }
 
 void FrameSync::cleanup() {
@@ -40,12 +60,7 @@ void FrameSync::cleanup() {
             sem = VK_NULL_HANDLE;
         }
     }
-    for (auto& sem : m_renderFinished) {
-        if (sem != VK_NULL_HANDLE) {
-            vkDestroySemaphore(m_device, sem, nullptr);
-            sem = VK_NULL_HANDLE;
-        }
-    }
+    destroyRenderFinished();
     for (auto& fence : m_inFlightFences) {
         if (fence != VK_NULL_HANDLE) {
             vkDestroyFence(m_device, fence, nullptr);

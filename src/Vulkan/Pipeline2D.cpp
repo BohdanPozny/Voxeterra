@@ -190,6 +190,12 @@ void Pipeline2D::createPipeline(VkRenderPass renderPass, VkExtent2D screenExtent
     
     // Pipeline
     VkGraphicsPipelineCreateInfo pipelineInfo{};
+    // The render pass has a depth attachment; UI ignores it.
+    VkPipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depthStencil.depthTestEnable = VK_FALSE;
+    depthStencil.depthWriteEnable = VK_FALSE;
+
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.stageCount = 2;
     pipelineInfo.pStages = shaderStages;
@@ -199,6 +205,7 @@ void Pipeline2D::createPipeline(VkRenderPass renderPass, VkExtent2D screenExtent
     pipelineInfo.pRasterizationState = &rasterizer;
     pipelineInfo.pMultisampleState = &multisampling;
     pipelineInfo.pColorBlendState = &colorBlending;
+    pipelineInfo.pDepthStencilState = &depthStencil;
 
     // Dynamic viewport/scissor so resize does not require pipeline recreation.
     VkDynamicState dynStates[] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};

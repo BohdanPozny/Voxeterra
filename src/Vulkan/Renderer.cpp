@@ -52,10 +52,15 @@ bool Renderer::init(Window& window, bool vsync) {
         return false;
     }
 
-    if (!m_frameSync.init(m_device.getLogicalDevice(), MAX_FRAMES_IN_FLIGHT)) {
+    if (!m_frameSync.init(m_device.getLogicalDevice(), MAX_FRAMES_IN_FLIGHT, getImageCount())) {
         std::cerr << "[Renderer] Failed to create sync objects" << std::endl;
         return false;
     }
+
+#ifdef TRACY_ENABLE
+    m_tracyCtx = TracyVkContext(m_device.getPhysicalDevice(), m_device.getLogicalDevice(),
+                                m_device.getGraphicsQueue(), m_commandPool.getCommandBuffer(0));
+#endif
 
     std::cout << "[Renderer] Initialized successfully" << std::endl;
     return true;
@@ -65,6 +70,13 @@ void Renderer::cleanup() {
     if (m_device.getLogicalDevice() != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(m_device.getLogicalDevice());
     }
+
+#ifdef TRACY_ENABLE
+    if (m_tracyCtx) {
+        TracyVkDestroy(m_tracyCtx);
+        m_tracyCtx = nullptr;
+    }
+#endif
 
     m_frameSync.cleanup();
     m_swapchain.cleanup();
@@ -82,6 +94,7 @@ void Renderer::waitIdle() {
 }
 
 void Renderer::recreateSwapchain(Window& window) {
+    ZoneScoped;
     int width = 0, height = 0;
     window.getFramebufferSize(&width, &height);
     while (width == 0 || height == 0) {
@@ -101,7 +114,8 @@ void Renderer::recreateSwapchain(Window& window) {
                             m_renderPass.getRenderPass(),
                             m_swapchain.getImageViews(),
                             m_depthBuffer.getImageView(),
-                            m_swapchain.getExtent())) {
+                            m_swapchain.getExtent()) ||
+        !m_frameSync.recreateRenderFinished(getImageCount())) {
         std::cerr << "[Renderer] Failed to recreate swapchain resources" << std::endl;
     }
 }
@@ -112,7 +126,10 @@ VkCommandBuffer Renderer::beginFrame(Window& window, uint32_t& outImageIndex) {
         return VK_NULL_HANDLE;
     }
 
-    m_frameSync.waitForFence(m_currentFrame);
+    {
+        ZoneScopedN("Wait frame fence");
+        m_frameSync.waitForFence(m_currentFrame);
+    }
 
     VkResult result = vkAcquireNextImageKHR(m_device.getLogicalDevice(),
                                             m_swapchain.getSwapchain(), UINT64_MAX,
@@ -127,7 +144,6 @@ VkCommandBuffer Renderer::beginFrame(Window& window, uint32_t& outImageIndex) {
     }
 
     m_isFrameStarted = true;
-    m_frameSync.resetFence(m_currentFrame);
 
     VkCommandBuffer commandBuffer = m_commandPool.getCommandBuffer(m_currentFrame);
     vkResetCommandBuffer(commandBuffer, 0);
@@ -137,8 +153,12 @@ VkCommandBuffer Renderer::beginFrame(Window& window, uint32_t& outImageIndex) {
 
     if (vkBeginCommandBuffer(commandBuffer, &beginInfo) != VK_SUCCESS) {
         std::cerr << "[Renderer] Failed to begin recording command buffer" << std::endl;
+        m_isFrameStarted = false;
         return VK_NULL_HANDLE;
     }
+
+    // Query resets must happen outside a render pass.
+    TracyVkCollect(m_tracyCtx, commandBuffer);
 
     return commandBuffer;
 }
@@ -181,6 +201,7 @@ void Renderer::endRenderPass(VkCommandBuffer commandBuffer) {
 }
 
 void Renderer::endFrame(Window& window, uint32_t imageIndex) {
+    ZoneScoped;
     if (!m_isFrameStarted) {
         std::cerr << "[Renderer] Cannot end frame before starting it!" << std::endl;
         return;
@@ -203,10 +224,11 @@ void Renderer::endFrame(Window& window, uint32_t imageIndex) {
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
 
-    VkSemaphore signalSemaphores[] = {m_frameSync.getRenderFinished(m_currentFrame)};
+    VkSemaphore signalSemaphores[] = {m_frameSync.getRenderFinished(imageIndex)};
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = signalSemaphores;
 
+    m_frameSync.resetFence(m_currentFrame);
     if (vkQueueSubmit(m_device.getGraphicsQueue(), 1, &submitInfo, m_frameSync.getFence(m_currentFrame)) != VK_SUCCESS) {
         std::cerr << "[Renderer] Failed to submit draw command buffer" << std::endl;
     }

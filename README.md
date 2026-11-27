@@ -9,7 +9,7 @@ Linux, Windows, and macOS (via MoltenVK).
 - Chunked world with binary greedy meshing
 - Streaming chunk loader around the camera
 - TTF font atlas + text rendering
-- Simple state machine (main menu, playing, paused, settings)
+- Simple state machine (main menu, playing, paused)
 - JSON-backed user configuration
 
 ## Dependencies
@@ -52,6 +52,22 @@ cmake -S . -B build && cmake --build build -j
 ./build/Voxterra
 ```
 
+## Profiling (Tracy)
+
+Instrumentation is compiled out by default. To enable it (CMake fetches the
+Tracy v0.13.1 client, so the first configure needs network access):
+
+```bash
+cmake -S . -B build-tracy -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVOXETERRA_TRACY=ON
+cmake --build build-tracy -j
+./build-tracy/Voxterra &
+tracy            # GUI from shell.nix; must be the same version (0.13.1)
+```
+
+CPU zones cover the frame loop, chunk streaming, generation and meshing; GPU
+zones time the world and UI passes; plots track loaded/visible chunks, and
+the "Vulkan buffers" memory pool tracks buffer allocations.
+
 ## Project layout
 
 ```
@@ -60,7 +76,7 @@ Voxeterra/
 │   ├── Vulkan/       # Vulkan wrappers (Instance, Device, Swapchain, ...)
 │   ├── World/        # Voxel, Chunk, World, WorldRenderer
 │   ├── UI/           # UIElement, UIPanel, UIButton, UILabel
-│   ├── States/       # MainMenu / Playing / Paused / Settings
+│   ├── States/       # MainMenu / Playing / Paused
 │   ├── Input/        # InputManager
 │   └── utils/        # BitUtils (portable ctz)
 ├── src/              # Implementation mirroring headers/
@@ -73,8 +89,13 @@ Voxeterra/
 
 ## Configuration
 
-`config.json` is loaded on startup and saved when the settings screen exits.
-Delete the file to regenerate it with defaults.
+`config.json` is loaded on startup from the executable's directory. If it is
+missing, a file with default values is written there. `renderDistance` is
+clamped to 2..16 chunks (each chunk is 64³ blocks). Debug builds enable
+`VK_LAYER_KHRONOS_validation` when it is installed.
+
+On a fresh clone `config.json` does not exist yet; CMake copies
+`config.json.example` instead.
 
 ## License
 

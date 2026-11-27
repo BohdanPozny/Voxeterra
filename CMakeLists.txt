@@ -47,6 +47,19 @@ target_link_libraries(Voxterra PRIVATE
     glm::glm
 )
 
+# Tracy profiler client. The version must match the Tracy GUI you connect with.
+option(VOXETERRA_TRACY "Enable Tracy profiler instrumentation" OFF)
+if(VOXETERRA_TRACY)
+    include(FetchContent)
+    FetchContent_Declare(tracy
+        GIT_REPOSITORY https://github.com/wolfpld/tracy.git
+        GIT_TAG        v0.13.1
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(tracy)
+    target_link_libraries(Voxterra PRIVATE Tracy::TracyClient)
+endif()
+
 # -----------------------------------------------------------------------------
 # Platform-specific flags
 # -----------------------------------------------------------------------------
@@ -102,6 +115,13 @@ endforeach()
 add_custom_target(Shaders ALL DEPENDS ${SPV_OUTPUTS})
 add_dependencies(Voxterra Shaders)
 
+# config.json is user-local (gitignored); fall back to the example on a fresh clone.
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config.json)
+    set(CONFIG_SRC ${CMAKE_CURRENT_SOURCE_DIR}/config.json)
+else()
+    set(CONFIG_SRC ${CMAKE_CURRENT_SOURCE_DIR}/config.json.example)
+endif()
+
 # -----------------------------------------------------------------------------
 # Copy runtime assets next to the executable (works on Ninja/Make AND on
 # multi-config generators like Visual Studio/Xcode).
@@ -114,7 +134,7 @@ add_custom_command(TARGET Voxterra POST_BUILD
             ${CMAKE_CURRENT_SOURCE_DIR}/fonts
             $<TARGET_FILE_DIR:Voxterra>/fonts
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_CURRENT_SOURCE_DIR}/config.json
+            ${CONFIG_SRC}
             $<TARGET_FILE_DIR:Voxterra>/config.json
     COMMENT "Copying runtime assets (shaders, fonts, config)"
 )

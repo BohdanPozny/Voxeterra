@@ -2,6 +2,7 @@
 #include "utils/stb_truetype.h"
 #include "Vulkan/TextRenderer.hpp"
 #include "Vulkan/Device.hpp"
+#include "Vulkan/Buffer.hpp"
 #include <fstream>
 #include <iostream>
 #include <cstring>
@@ -66,7 +67,7 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
             // Blit glyph bitmap into the atlas.
             for (int y = 0; y < height; ++y) {
                 for (int x = 0; x < width; ++x) {
-                    int atlasIdx = (penY + y) * atlasWidth + (penX + x);
+                    size_t atlasIdx = static_cast<size_t>((penY + y) * atlasWidth + (penX + x));
                     if (atlasIdx < atlasData.size()) {
                         atlasData[atlasIdx] = bitmap[y * width + x];
                     }
@@ -109,7 +110,14 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     std::cout << "[TextRenderer] Loaded font: " << fontPath << " (" << m_characters.size() << " chars)" << std::endl;
     std::cout << "[TextRenderer] Created font atlas: " << atlasWidth << "x" << atlasHeight << std::endl;
     
-    // Create a single-channel Vulkan image initialised with atlasData.
+    Buffer staging;
+    if (!staging.init(device, atlasData.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+        std::cerr << "[TextRenderer] Failed to create staging buffer" << std::endl;
+        return false;
+    }
+    staging.copyData(atlasData.data(), atlasData.size());
+
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -118,10 +126,10 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     imageInfo.extent.depth = 1;
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
-    imageInfo.format = VK_FORMAT_R8_UNORM;   // single-channel (alpha coverage)
-    imageInfo.tiling = VK_IMAGE_TILING_LINEAR;  // linear tiling avoids staging buffer
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_PREINITIALIZED;
-    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageInfo.format = VK_FORMAT_R8_UNORM;
+    imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     
@@ -130,21 +138,17 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
         return false;
     }
     
-    // Query the driver for the image's memory requirements.
     VkMemoryRequirements memRequirements;
     vkGetImageMemoryRequirements(m_device, m_fontTexture, &memRequirements);
 
-    // Allocate host-visible memory since we upload directly (no staging).
     VkPhysicalDeviceMemoryProperties memProperties;
     vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProperties);
     
     uint32_t memoryTypeIndex = 0;
     bool found = false;
-    VkMemoryPropertyFlags properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-    
     for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
         if ((memRequirements.memoryTypeBits & (1 << i)) &&
-            (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            (memProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)) {
             memoryTypeIndex = i;
             found = true;
             break;
@@ -167,12 +171,11 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     }
     
     vkBindImageMemory(m_device, m_fontTexture, m_fontMemory, 0);
-    
-    // Upload glyph pixels directly. A staging buffer would be preferable for GPU-local memory.
-    void* data;
-    vkMapMemory(m_device, m_fontMemory, 0, memRequirements.size, 0, &data);
-    memcpy(data, atlasData.data(), atlasData.size());
-    vkUnmapMemory(m_device, m_fontMemory);
+
+    if (!uploadAtlas(staging.getBuffer(), atlasWidth, atlasHeight)) {
+        std::cerr << "[TextRenderer] Failed to upload font atlas" << std::endl;
+        return false;
+    }
     
     // Image view used when binding the sampler.
     VkImageViewCreateInfo viewInfo{};
@@ -215,6 +218,72 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     std::cout << "[TextRenderer] Font texture created successfully" << std::endl;
     
     return true;
+}
+
+bool TextRenderer::uploadAtlas(VkBuffer staging, uint32_t width, uint32_t height) {
+    const uint32_t family = m_devicePtr->getQueueFamilies().graphicsFamily.value();
+    VkQueue queue = m_devicePtr->getGraphicsQueue();
+
+    VkCommandPoolCreateInfo poolInfo{};
+    poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    poolInfo.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+    poolInfo.queueFamilyIndex = family;
+
+    VkCommandPool pool = VK_NULL_HANDLE;
+    if (vkCreateCommandPool(m_device, &poolInfo, nullptr, &pool) != VK_SUCCESS) return false;
+
+    VkCommandBufferAllocateInfo allocInfo{};
+    allocInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocInfo.commandPool = pool;
+    allocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocInfo.commandBufferCount = 1;
+
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    bool ok = vkAllocateCommandBuffers(m_device, &allocInfo, &cmd) == VK_SUCCESS;
+
+    if (ok) {
+        VkCommandBufferBeginInfo beginInfo{};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        vkBeginCommandBuffer(cmd, &beginInfo);
+
+        VkImageMemoryBarrier barrier{};
+        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = m_fontTexture;
+        barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.srcAccessMask = 0;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        VkBufferImageCopy region{};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageExtent = {width, height, 1};
+        vkCmdCopyBufferToImage(cmd, staging, m_fontTexture, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+
+        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                             0, 0, nullptr, 0, nullptr, 1, &barrier);
+
+        vkEndCommandBuffer(cmd);
+
+        VkSubmitInfo submitInfo{};
+        submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.commandBufferCount = 1;
+        submitInfo.pCommandBuffers = &cmd;
+        ok = vkQueueSubmit(queue, 1, &submitInfo, VK_NULL_HANDLE) == VK_SUCCESS &&
+             vkQueueWaitIdle(queue) == VK_SUCCESS;
+    }
+
+    vkDestroyCommandPool(m_device, pool, nullptr);
+    return ok;
 }
 
 void TextRenderer::cleanup() {

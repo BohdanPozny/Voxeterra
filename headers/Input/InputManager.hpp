@@ -55,7 +55,6 @@ private:
 
     // Mouse cursor state.
     glm::vec2 m_mousePos{0.0f};
-    glm::vec2 m_lastMousePos{0.0f};
     glm::vec2 m_mouseDelta{0.0f};
     bool m_firstMouse = true;
 

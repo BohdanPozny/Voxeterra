@@ -1,11 +1,12 @@
 #include "World/Chunk.hpp"
 #include "World/World.hpp"
 #include "utils/BitUtils.hpp"
+#include "utils/Profiler.hpp"
 #include <cstring>
 #include <cstdint>
 #include <cmath>
 #include <array>
-#include <unordered_map>
+#include <vector>
 
 Chunk::Chunk(const glm::ivec3& position) 
     : m_position(position) {
@@ -42,8 +43,17 @@ void Chunk::setVoxel(int x, int y, int z, VoxelType type) {
     if (!isInBounds(x, y, z)) {
         return;
     }
-    m_voxels[getIndex(x, y, z)] = type;
+    VoxelType& slot = m_voxels[getIndex(x, y, z)];
+    if (slot == type) return;
+    countVoxel(slot, -1);
+    countVoxel(type, +1);
+    slot = type;
     m_isDirty = true;
+}
+
+void Chunk::countVoxel(VoxelType type, int delta) {
+    if (isVoxelTransparent(type))  m_waterCount += delta;
+    else if (isVoxelOpaque(type))  m_opaqueCount += delta;
 }
 
 bool Chunk::isInBounds(int x, int y, int z) const {
@@ -52,27 +62,15 @@ bool Chunk::isInBounds(int x, int y, int z) const {
            z >= 0 && z < CHUNK_SIZE;
 }
 
-void Chunk::fillTestData() {
-    for (int y = 0; y < CHUNK_SIZE / 2; y++) {
-        for (int z = 0; z < CHUNK_SIZE; z++) {
-            for (int x = 0; x < CHUNK_SIZE; x++) {
-                setVoxel(x, y, z, VoxelTypes::STONE);
-            }
-        }
-    }
-    
-    for (int i = 0; i < 20; i++) {
-        int x = rand() % CHUNK_SIZE;
-        int y = CHUNK_SIZE / 2 + rand() % (CHUNK_SIZE / 2);
-        int z = rand() % CHUNK_SIZE;
-        setVoxel(x, y, z, VoxelTypes::GRASS);
-    }
-    
-    m_isDirty = true;
+void Chunk::clearMesh() {
+    std::vector<VoxelVertex>().swap(m_vertices);
+    std::vector<uint32_t>().swap(m_indices);
+    std::vector<VoxelVertex>().swap(m_waterVertices);
+    std::vector<uint32_t>().swap(m_waterIndices);
 }
 
-// Binary greedy meshing: for each axis build 64x64 columns of uint64_t bitmasks,
-// derive face masks with bitshifts, then greedy-merge faces by type into quads.
+// Binary greedy meshing: build 64x64 columns of uint64_t bitmasks per axis in one pass,
+// derive face masks with bitshifts, scatter faces into per-type planes, then greedy-merge.
 
 namespace {
 
@@ -130,9 +128,9 @@ inline void emitQuad(std::vector<VoxelVertex>& verts,
         float y0 = static_cast<float>(v0);
         float y1 = static_cast<float>(v0 + w);
         if (dir == 0) {
-            p0 = {x0, y0, a}; p1 = {x1, y0, a}; p2 = {x1, y1, a}; p3 = {x0, y1, a};
+            p0 = {x0, y0, a}; p1 = {x0, y1, a}; p2 = {x1, y1, a}; p3 = {x1, y0, a};
         } else {
-            p0 = {x1, y0, a}; p1 = {x0, y0, a}; p2 = {x0, y1, a}; p3 = {x1, y1, a};
+            p0 = {x1, y0, a}; p1 = {x1, y1, a}; p2 = {x0, y1, a}; p3 = {x0, y0, a};
         }
     }
 
@@ -151,23 +149,79 @@ inline void emitQuad(std::vector<VoxelVertex>& verts,
 
 } // namespace
 
-// Single meshing pass parameterised by voxel predicates.
-// occupancy(v): voxel contributes to this pass (solid or water).
-// blocker(v):   neighbouring voxel hides a face (opaque for solid; opaque or water for water).
-// neighbors[axis][dir]: neighbour chunk along +/- axis, may be nullptr.
-template <typename OccFn, typename BlockFn>
-static void meshPass(const std::array<VoxelType, CHUNK_VOLUME>& voxels,
-                     const glm::vec3& chunkOrigin,
-                     std::vector<VoxelVertex>& outVerts,
-                     std::vector<uint32_t>& outIndices,
-                     const Chunk* const neighbors[3][2],
-                     OccFn occupancy, BlockFn blocker) {
-    constexpr int N = CHUNK_SIZE;
-    auto vxl = [&](int x, int y, int z) -> VoxelType {
-        return voxels[x + y * N + z * N * N];
-    };
+namespace {
 
-    // Returns true if the neighbour chunk blocks this boundary face.
+constexpr int N = CHUNK_SIZE;
+using Columns = std::array<uint64_t, N * N>;
+
+// Column layout per axis, index u * N + v, bit a = slice along the axis:
+//   axis 0: a=x, u=z, v=y    axis 1: a=y, u=x, v=z    axis 2: a=z, u=x, v=y
+
+inline VoxelType voxelAt(const std::array<VoxelType, CHUNK_VOLUME>& voxels, int axis, int a, int u, int v) {
+    int x, y, z;
+    if (axis == 0)      { x = a; y = v; z = u; }
+    else if (axis == 1) { x = u; y = a; z = v; }
+    else                { x = u; y = v; z = a; }
+    return voxels[x + y * N + z * N * N];
+}
+
+struct MeshScratch {
+    Columns opaque[3];
+    Columns water[3];
+    Columns solid[3];
+
+    // Face planes per voxel type, index slice * N + u, bit v. Greedy merging
+    // consumes every bit, so planes are always zero between uses.
+    std::vector<Columns> planes;
+    std::array<int, 256> slotOf;
+    std::vector<VoxelType> slotType;
+    std::vector<uint64_t> sliceMask;
+};
+
+MeshScratch& scratch() {
+    static thread_local MeshScratch s;
+    return s;
+}
+
+void buildColumns(const std::array<VoxelType, CHUNK_VOLUME>& voxels, MeshScratch& s, bool hasWater) {
+    ZoneScoped;
+    for (int axis = 0; axis < 3; ++axis) {
+        s.opaque[axis].fill(0);
+        s.water[axis].fill(0);
+    }
+    for (int z = 0; z < N; ++z) {
+        for (int y = 0; y < N; ++y) {
+            const VoxelType* row = &voxels[y * N + z * N * N];
+            uint64_t opaqueRow = 0, waterRow = 0;
+            for (int x = 0; x < N; ++x) {
+                const VoxelType t = row[x];
+                if (t == VoxelTypes::AIR) continue;
+                Columns* cols;
+                if (isVoxelTransparent(t)) { waterRow  |= 1ULL << x; cols = s.water; }
+                else                       { opaqueRow |= 1ULL << x; cols = s.opaque; }
+                cols[1][x * N + z] |= 1ULL << y;
+                cols[2][x * N + y] |= 1ULL << z;
+            }
+            s.opaque[0][z * N + y] = opaqueRow;
+            s.water[0][z * N + y]  = waterRow;
+        }
+    }
+    if (hasWater) {
+        for (int axis = 0; axis < 3; ++axis) {
+            for (int i = 0; i < N * N; ++i) s.solid[axis][i] = s.opaque[axis][i] | s.water[axis][i];
+        }
+    }
+}
+
+// occ: voxels that emit faces in this pass; blk: voxels that hide a neighbouring face.
+template <typename BlockFn>
+void meshPass(const std::array<VoxelType, CHUNK_VOLUME>& voxels,
+              const glm::vec3& chunkOrigin,
+              std::vector<VoxelVertex>& outVerts,
+              std::vector<uint32_t>& outIndices,
+              const Chunk* const neighbors[3][2],
+              const Columns occ[3], const Columns blk[3],
+              MeshScratch& s, BlockFn blocker) {
     auto neighborBlocks = [&](int axis, int dir, int u, int v) -> bool {
         const Chunk* n = neighbors[axis][dir];
         if (!n) return false;
@@ -179,114 +233,61 @@ static void meshPass(const std::array<VoxelType, CHUNK_VOLUME>& voxels,
     };
 
     for (int axis = 0; axis < 3; ++axis) {
-        // occ_col: bit = occupancy; block_col: bit = blocker (superset of occ).
-        std::array<uint64_t, N * N> occ_col{};
-        std::array<uint64_t, N * N> block_col{};
-
-        for (int u = 0; u < N; ++u) {
-            for (int v = 0; v < N; ++v) {
-                uint64_t occ = 0, blk = 0;
-                for (int a = 0; a < N; ++a) {
-                    int x, y, z;
-                    if (axis == 0)      { x = a; y = v; z = u; }
-                    else if (axis == 1) { x = u; y = a; z = v; }
-                    else                { x = u; y = v; z = a; }
-                    VoxelType t = vxl(x, y, z);
-                    if (occupancy(t)) occ |= (1ULL << a);
-                    if (blocker(t))   blk |= (1ULL << a);
-                }
-                occ_col[u * N + v] = occ;
-                block_col[u * N + v] = blk;
-            }
-        }
-
         for (int dir = 0; dir < 2; ++dir) {
-            std::unordered_map<VoxelType, std::array<uint64_t, N * N>> face_col_by_type;
+            s.slotType.clear();
+            s.sliceMask.clear();
+            s.slotOf.fill(-1);
 
             for (int u = 0; u < N; ++u) {
                 for (int v = 0; v < N; ++v) {
-                    uint64_t occ = occ_col[u * N + v];
-                    uint64_t blk = block_col[u * N + v];
-                    // Face exists where voxel (occ=1) but neighbour along dir is not a blocker.
-                    uint64_t faces = (dir == 0)
-                        ? (occ & ~(blk >> 1))
-                        : (occ & ~(blk << 1));
-                    // Clear border bit if the neighbour chunk blocks that face.
-                    if (faces) {
-                        if (dir == 0) {
-                            if (neighborBlocks(axis, 0, u, v))
-                                faces &= ~(1ULL << (N - 1));
-                        } else {
-                            if (neighborBlocks(axis, 1, u, v))
-                                faces &= ~1ULL;
+                    const uint64_t o = occ[axis][u * N + v];
+                    if (o == 0) continue;
+                    const uint64_t b = blk[axis][u * N + v];
+                    uint64_t faces = (dir == 0) ? (o & ~(b >> 1)) : (o & ~(b << 1));
+
+                    const uint64_t borderBit = (dir == 0) ? (1ULL << (N - 1)) : 1ULL;
+                    if ((faces & borderBit) && neighborBlocks(axis, dir, u, v)) faces &= ~borderBit;
+
+                    while (faces) {
+                        const int a = ctz64(faces);
+                        faces &= faces - 1;
+
+                        const VoxelType t = voxelAt(voxels, axis, a, u, v);
+                        int slot = s.slotOf[t];
+                        if (slot < 0) {
+                            slot = static_cast<int>(s.slotType.size());
+                            s.slotOf[t] = slot;
+                            s.slotType.push_back(t);
+                            s.sliceMask.push_back(0);
+                            if (s.planes.size() < s.slotType.size()) s.planes.emplace_back().fill(0);
                         }
-                    }
-                    if (faces == 0) continue;
-
-                    uint64_t remaining = faces;
-                    while (remaining) {
-                        int a = ctz64(remaining);
-                        remaining &= remaining - 1;
-
-                        int x, y, z;
-                        if (axis == 0)      { x = a; y = v; z = u; }
-                        else if (axis == 1) { x = u; y = a; z = v; }
-                        else                { x = u; y = v; z = a; }
-
-                        VoxelType t = vxl(x, y, z);
-                        auto it = face_col_by_type.find(t);
-                        if (it == face_col_by_type.end()) {
-                            std::array<uint64_t, N * N> arr{};
-                            it = face_col_by_type.emplace(t, arr).first;
-                        }
-                        it->second[u * N + v] |= (1ULL << a);
+                        s.planes[slot][a * N + u] |= 1ULL << v;
+                        s.sliceMask[slot] |= 1ULL << a;
                     }
                 }
             }
 
-            for (auto& kv : face_col_by_type) {
-                VoxelType type = kv.first;
-                const auto& col = kv.second;
-                glm::vec3 color = voxelTypeToColor(type);
-
-                for (int slice = 0; slice < N; ++slice) {
-                    std::array<uint64_t, N> rows{};
-                    for (int u = 0; u < N; ++u) {
-                        uint64_t r = 0;
-                        for (int v = 0; v < N; ++v) {
-                            if ((col[u * N + v] >> slice) & 1ULL) {
-                                r |= (1ULL << v);
-                            }
-                        }
-                        rows[u] = r;
-                    }
+            for (size_t slot = 0; slot < s.slotType.size(); ++slot) {
+                const glm::vec3 color = voxelTypeToColor(s.slotType[slot]);
+                uint64_t slices = s.sliceMask[slot];
+                while (slices) {
+                    const int slice = ctz64(slices);
+                    slices &= slices - 1;
+                    uint64_t* rows = &s.planes[slot][slice * N];
 
                     for (int u = 0; u < N; ++u) {
                         while (rows[u]) {
-                            int v_start = ctz64(rows[u]);
-                            uint64_t shifted = rows[u] >> v_start;
-                            int w;
-                            if (~shifted == 0ULL) {
-                                w = N - v_start;
-                            } else {
-                                w = ctz64(~shifted);
-                                if (w > N - v_start) w = N - v_start;
-                            }
-                            uint64_t strip = (w >= 64)
-                                ? (~0ULL)
-                                : (((1ULL << w) - 1ULL) << v_start);
+                            const int vStart = ctz64(rows[u]);
+                            const uint64_t shifted = rows[u] >> vStart;
+                            const int w = (~shifted == 0ULL) ? N - vStart : ctz64(~shifted);
+                            const uint64_t strip = (w >= 64) ? ~0ULL : (((1ULL << w) - 1ULL) << vStart);
 
                             int h = 1;
-                            for (int u2 = u + 1; u2 < N; ++u2) {
-                                if ((rows[u2] & strip) == strip) ++h;
-                                else break;
-                            }
-                            for (int u2 = u; u2 < u + h; ++u2) {
-                                rows[u2] &= ~strip;
-                            }
+                            while (u + h < N && (rows[u + h] & strip) == strip) ++h;
+                            for (int u2 = u; u2 < u + h; ++u2) rows[u2] &= ~strip;
 
                             emitQuad(outVerts, outIndices, axis, dir, slice,
-                                     u, v_start, h, w, color, chunkOrigin);
+                                     u, vStart, h, w, color, chunkOrigin);
                         }
                     }
                 }
@@ -295,19 +296,21 @@ static void meshPass(const std::array<VoxelType, CHUNK_VOLUME>& voxels,
     }
 }
 
-void Chunk::generateMesh() {
-    generateMesh(nullptr);
-}
+} // namespace
 
 void Chunk::generateMesh(const World* world) {
+    ZoneScoped;
     if (!m_isDirty) return;
 
     m_vertices.clear();
     m_indices.clear();
     m_waterVertices.clear();
     m_waterIndices.clear();
+    m_isDirty = false;
 
     static_assert(CHUNK_SIZE == 64, "Binary meshing requires CHUNK_SIZE==64");
+
+    if (m_opaqueCount == 0 && m_waterCount == 0) return;
 
     const glm::vec3 chunkOrigin = glm::vec3(m_position * CHUNK_SIZE);
 
@@ -322,16 +325,20 @@ void Chunk::generateMesh(const World* world) {
         }
     }
 
+    MeshScratch& s = scratch();
+    buildColumns(m_voxels, s, m_waterCount > 0);
+
     // Solid pass: opaque blocks hidden only by opaque neighbours.
-    meshPass(m_voxels, chunkOrigin, m_vertices, m_indices, neighbors,
-             [](VoxelType t) { return isVoxelOpaque(t); },
-             [](VoxelType t) { return isVoxelOpaque(t); });
+    if (m_opaqueCount > 0) {
+        ZoneScopedN("Mesh solid");
+        meshPass(m_voxels, chunkOrigin, m_vertices, m_indices, neighbors, s.opaque, s.opaque, s,
+                 [](VoxelType t) { return isVoxelOpaque(t); });
+    }
 
-    // Water pass: transparent faces culled by both opaque and other water, so only outer
-    // shell (top surface + sides exposed to air) is emitted.
-    meshPass(m_voxels, chunkOrigin, m_waterVertices, m_waterIndices, neighbors,
-             [](VoxelType t) { return isVoxelTransparent(t); },
-             [](VoxelType t) { return isVoxelSolid(t); });
-
-    m_isDirty = false;
+    // Water pass: faces culled by opaque blocks and other water, so only the outer shell is emitted.
+    if (m_waterCount > 0) {
+        ZoneScopedN("Mesh water");
+        meshPass(m_voxels, chunkOrigin, m_waterVertices, m_waterIndices, neighbors, s.water, s.solid, s,
+                 [](VoxelType t) { return isVoxelSolid(t); });
+    }
 }

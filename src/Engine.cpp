@@ -3,6 +3,7 @@
 #include "States/PlayingState.hpp"
 #include "States/PausedState.hpp"
 #include "UI/UIElement.hpp"
+#include "utils/Profiler.hpp"
 #include <iostream>
 #include <array>
 #include <cstring>
@@ -13,6 +14,7 @@ Engine::~Engine() noexcept {
 }
 
 bool Engine::init() {
+    ZoneScoped;
     m_config.load();
 
     // Apply Config-driven camera settings before any input is processed.
@@ -55,9 +57,8 @@ bool Engine::initVulkan() {
         return false;
     }
 
-    uint32_t imageCount = m_renderer.getImageCount();
     if (!m_worldRenderer.init(m_renderer.getDevice(), m_renderer.getRenderPass(),
-                              m_renderer.getSwapchainExtent(), imageCount)) {
+                              m_renderer.getSwapchainExtent(), Renderer::MAX_FRAMES_IN_FLIGHT)) {
         std::cerr << "[Engine] Failed to init world renderer" << std::endl;
         return false;
     }
@@ -67,7 +68,8 @@ bool Engine::initVulkan() {
     m_camera.setAspectRatio(static_cast<float>(ext.width) / static_cast<float>(ext.height));
 
     if (!m_uiRenderer.init(m_renderer.getDevice(), m_renderer.getRenderPass(), m_renderer.getSwapchainExtent(),
-                           m_config.getUIFont(), m_config.getUIFontSize())) {
+                           m_config.getUIFont(), m_config.getUIFontSize(),
+                           Renderer::MAX_FRAMES_IN_FLIGHT)) {
         std::cerr << "[Engine] Failed to init UI renderer" << std::endl;
         return false;
     }
@@ -93,10 +95,12 @@ void Engine::mainLoop() {
         const float deltaTime = now - lastFrame;
         lastFrame = now;
 
-        glfwPollEvents();
-        m_input.beginFrame();
-
-        m_stateManager.handleInput();
+        {
+            ZoneScopedN("Input");
+            glfwPollEvents();
+            m_input.beginFrame();
+            m_stateManager.handleInput();
+        }
         m_stateManager.update(deltaTime);
 
         // Only the gameplay state consumes camera input.
@@ -107,12 +111,14 @@ void Engine::mainLoop() {
 
         drawFrame();
         m_stateManager.render();
+        FrameMark;
     }
 
     m_renderer.waitIdle();
 }
 
 void Engine::drawFrame() {
+    ZoneScoped;
     uint32_t imageIndex;
     VkCommandBuffer commandBuffer = m_renderer.beginFrame(m_window, imageIndex);
     if (commandBuffer == VK_NULL_HANDLE) {
@@ -128,7 +134,8 @@ void Engine::drawFrame() {
     VkExtent2D ext = m_renderer.getSwapchainExtent();
     m_camera.setAspectRatio(static_cast<float>(ext.width) / static_cast<float>(ext.height));
 
-    m_worldRenderer.updateUniforms(imageIndex, m_camera);
+    const uint32_t frameIndex = m_renderer.getCurrentFrame();
+    m_worldRenderer.updateUniforms(frameIndex, m_camera);
 
     std::array<float, 4> clearColor = {0.2f, 0.2f, 0.25f, 1.0f};
     IGameState* currentState = m_stateManager.getState(m_stateManager.getCurrentState());
@@ -140,13 +147,15 @@ void Engine::drawFrame() {
     m_renderer.beginRenderPass(commandBuffer, imageIndex, clearColor);
 
     if (currentState && currentState->shouldRenderWorld()) {
-        m_worldRenderer.render(commandBuffer, imageIndex);
+        TracyVkZone(m_renderer.getTracyContext(), commandBuffer, "World");
+        m_worldRenderer.render(commandBuffer, frameIndex);
     }
 
     if (currentState) {
         UIElement* uiRoot = currentState->getUIRoot();
         if (uiRoot) {
-            m_uiRenderer.renderUI(uiRoot, commandBuffer);
+            TracyVkZone(m_renderer.getTracyContext(), commandBuffer, "UI");
+            m_uiRenderer.renderUI(uiRoot, commandBuffer, frameIndex);
         }
     }
 

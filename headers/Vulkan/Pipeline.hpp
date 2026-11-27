@@ -16,12 +16,6 @@ public:
     Pipeline(const Pipeline&) = delete;
     Pipeline& operator=(const Pipeline&) = delete;
 
-    bool init(VkDevice device,
-              VkRenderPass renderPass,
-              VkExtent2D swapchainExtent,
-              const std::string& vertShaderPath,
-              const std::string& fragShaderPath) noexcept;
-
     bool initWithVertexInput(VkDevice device,
                              VkRenderPass renderPass,
                              VkExtent2D swapchainExtent,

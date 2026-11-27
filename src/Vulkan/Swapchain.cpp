@@ -49,7 +49,7 @@ bool Swapchain::init(Device& device, Window& window, VkSurfaceKHR m_surface, boo
     VkExtent2D extent = chooseExtent(capabilities, window);
 
     uint32_t imageCount = capabilities.minImageCount + 1;
-    if (imageCount > 0 && imageCount > capabilities.maxImageCount) {
+    if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount) {
         imageCount = capabilities.maxImageCount;
     }
     
@@ -63,7 +63,15 @@ bool Swapchain::init(Device& device, Window& window, VkSurfaceKHR m_surface, boo
     createInfo.imageArrayLayers = 1;
     createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
     
-    createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    QueueFamilyIndices families = device.getQueueFamilies();
+    uint32_t familyIndices[] = {families.graphicsFamily.value(), families.presentFamily.value()};
+    if (familyIndices[0] != familyIndices[1]) {
+        createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+        createInfo.queueFamilyIndexCount = 2;
+        createInfo.pQueueFamilyIndices = familyIndices;
+    } else {
+        createInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    }
     createInfo.preTransform = capabilities.currentTransform;
     createInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
     createInfo.presentMode = presentMode;

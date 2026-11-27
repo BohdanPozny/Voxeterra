@@ -40,7 +40,6 @@ public:
     GameState getNextState() const override { return m_nextState; }
     bool shouldChangeState() const override { return m_shouldChangeState; }
     
-    UIPanel* getHUDPanel() const { return m_hudPanel.get(); }
 
     void pause();
 
@@ -50,5 +49,4 @@ public:
     }
     bool shouldRenderWorld() const override { return true; }
     UIElement* getUIRoot() override;
-    void processGameplayInput(float deltaTime) override;
 };

@@ -62,8 +62,8 @@ void PausedState::onEnter() {
     m_shouldChangeState = false;
     m_nextState = GameState::PAUSED;
 
-    if (m_engine && m_engine->getWindow().getWindow()) {
-        glfwSetInputMode(m_engine->getWindow().getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    if (m_engine) {
+        m_engine->getInput().setCursorEnabled(true);
     }
 }
 
@@ -92,7 +92,7 @@ void PausedState::handleInput() {
 
     auto& input = m_engine->getInput();
     glm::vec2 mouse = input.getNormalizedMousePosition();
-    bool justClicked = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
+    bool mouseDown = input.isMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT);
 
-    m_menuPanel->handleInput(mouse, justClicked);
+    m_menuPanel->handleInput(mouse, mouseDown);
 }

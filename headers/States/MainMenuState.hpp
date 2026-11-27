@@ -12,7 +12,6 @@ private:
     Engine* m_engine;
     GameState m_nextState = GameState::MAIN_MENU;
     bool m_shouldChangeState = false;
-    bool m_shouldExit = false;
     
     // Owned widget tree.
     std::unique_ptr<UIPanel> m_menuPanel;
@@ -34,8 +33,6 @@ public:
     GameState getNextState() const override { return m_nextState; }
     bool shouldChangeState() const override { return m_shouldChangeState; }
     
-    bool shouldExitGame() const { return m_shouldExit; }
-    UIPanel* getMenuPanel() const { return m_menuPanel.get(); }
 
     // Polymorphic render hooks
     UIElement* getUIRoot() override;

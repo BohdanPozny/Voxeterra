@@ -36,7 +36,4 @@ public:
 
     // Optional UI root to draw over the scene (nullptr = no UI).
     virtual UIElement* getUIRoot() { return nullptr; }
-
-    // Gameplay input hook (camera/movement). Only PLAYING overrides it.
-    virtual void processGameplayInput(float /*deltaTime*/) {}
 };

@@ -71,16 +71,16 @@ void PlayingState::onEnter() {
     m_nextState = GameState::PLAYING;
 
     // Capture the cursor for FPS-style camera control.
-    if (m_engine && m_engine->getWindow().getWindow()) {
-        glfwSetInputMode(m_engine->getWindow().getWindow(), GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+    if (m_engine) {
+        m_engine->getInput().setCursorEnabled(false);
     }
 }
 
 void PlayingState::onExit() {
     std::cout << "[PlayingState] Exiting game..." << std::endl;
     // Release the cursor.
-    if (m_engine && m_engine->getWindow().getWindow()) {
-        glfwSetInputMode(m_engine->getWindow().getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+    if (m_engine) {
+        m_engine->getInput().setCursorEnabled(true);
     }
 }
 
@@ -190,12 +190,4 @@ void PlayingState::pause() {
 
 UIElement* PlayingState::getUIRoot() {
     return m_hudPanel.get();
-}
-
-void PlayingState::processGameplayInput(float deltaTime) {
-    if (m_engine) {
-        // Camera input is currently driven from Engine::processInput().
-        // Kept here as a hook so the state can own gameplay input later.
-        (void)deltaTime;
-    }
 }

@@ -1,9 +1,13 @@
 #pragma once
 
+#include <algorithm>
 #include <string>
-#include <map>
 
 class Config {
+public:
+    static constexpr int MIN_RENDER_DISTANCE = 2;
+    static constexpr int MAX_RENDER_DISTANCE = 16;
+
 private:
     std::string m_configPath;
     
@@ -46,7 +50,9 @@ public:
     void setWindowHeight(int height) { m_windowHeight = height; }
     void setFullscreen(bool fullscreen) { m_fullscreen = fullscreen; }
     void setVsync(bool vsync) { m_vsync = vsync; }
-    void setRenderDistance(int distance) { m_renderDistance = distance; }
+    void setRenderDistance(int distance) {
+        m_renderDistance = std::clamp(distance, MIN_RENDER_DISTANCE, MAX_RENDER_DISTANCE);
+    }
     void setFOV(float fov) { m_fov = fov; }
     
     // Controls getters/setters

@@ -1,5 +1,6 @@
 #include "Config.hpp"
 #include "utils/json.hpp"
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 
@@ -12,7 +13,8 @@ Config::Config(const std::string& configPath)
 bool Config::load() {
     std::ifstream file(m_configPath);
     if (!file.is_open()) {
-        std::cout << "[Config] File not found, using defaults: " << m_configPath << std::endl;
+        std::cout << "[Config] File not found, writing defaults: " << m_configPath << std::endl;
+        save();
         return false;
     }
     
@@ -52,6 +54,9 @@ bool Config::load() {
             if (ui.contains("font")) m_uiFont = ui["font"];
             if (ui.contains("fontSize")) m_uiFontSize = ui["fontSize"];
         }
+
+        // Each chunk is 64^3 blocks; beyond this radius RAM and GPU allocation counts explode.
+        m_renderDistance = std::clamp(m_renderDistance, MIN_RENDER_DISTANCE, MAX_RENDER_DISTANCE);
 
         std::cout << "[Config] Loaded from: " << m_configPath << std::endl;
         return true;

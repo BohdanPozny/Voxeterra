@@ -1,5 +1,5 @@
 #include "World/World.hpp"
-#include <iostream>
+#include "utils/Profiler.hpp"
 #include <cmath>
 #include <cstdint>
 #include <algorithm>
@@ -123,6 +123,7 @@ float fbm2D(float x, float y, int octaves, float lacunarity = 2.0f, float gain =
 } // namespace
 
 void World::generateChunkData(Chunk* chunk) {
+    ZoneScoped;
     if (!chunk) return;
 
     const glm::ivec3& cpos = chunk->getPosition();
@@ -205,17 +206,4 @@ void World::generateChunkData(Chunk* chunk) {
 
 void World::removeChunk(const glm::ivec3& position) {
     m_chunks.erase(position);
-}
-
-void World::generateTestWorld() {
-    // Streaming (WorldRenderer::updateStreaming) populates chunks on demand.
-    std::cout << "[World] generateTestWorld() is a no-op with streaming enabled" << std::endl;
-}
-
-void World::updateChunks() {
-    for (auto& [pos, chunk] : m_chunks) {
-        if (chunk->isDirty()) {
-            chunk->generateMesh();
-        }
-    }
 }

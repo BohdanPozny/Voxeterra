@@ -5,7 +5,7 @@
 
 class Instance {
 private:
-    VkInstance m_instance;
+    VkInstance m_instance = VK_NULL_HANDLE;
     bool checkValidationLayerSupport() noexcept;
 
 public:

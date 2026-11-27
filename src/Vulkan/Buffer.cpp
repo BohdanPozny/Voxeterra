@@ -1,7 +1,10 @@
 #include "Vulkan/Buffer.hpp"
 #include "Vulkan/Device.hpp"
+#include "utils/Profiler.hpp"
 #include <iostream>
 #include <cstring>
+
+[[maybe_unused]] static const char* kTracyPool = "Vulkan buffers";
 
 Buffer::~Buffer() noexcept {
     if (m_deviceHandle != VK_NULL_HANDLE) {
@@ -9,24 +12,26 @@ Buffer::~Buffer() noexcept {
             vkDestroyBuffer(m_deviceHandle, m_buffer, nullptr);
         }
         if (m_memory != VK_NULL_HANDLE) {
+            TracyFreeN(this, kTracyPool);
             vkFreeMemory(m_deviceHandle, m_memory, nullptr);
         }
     }
 }
 
-uint32_t Buffer::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+bool Buffer::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t& outIndex) {
     VkPhysicalDeviceMemoryProperties memProperties;
     vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProperties);
 
     for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
         if ((typeFilter & (1 << i)) && 
             (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
+            outIndex = i;
+            return true;
         }
     }
 
     std::cerr << "[Buffer] Failed to find suitable memory type" << std::endl;
-    return 0;
+    return false;
 }
 
 bool Buffer::init(Device& device,
@@ -56,20 +61,23 @@ bool Buffer::init(Device& device,
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+    if (!findMemoryType(memRequirements.memoryTypeBits, properties, allocInfo.memoryTypeIndex)) {
+        return false;
+    }
 
     if (vkAllocateMemory(m_deviceHandle, &allocInfo, nullptr, &m_memory) != VK_SUCCESS) {
         std::cerr << "[Buffer] Failed to allocate buffer memory" << std::endl;
         return false;
     }
 
+    TracyAllocN(this, allocInfo.allocationSize, kTracyPool);
     vkBindBufferMemory(m_deviceHandle, m_buffer, m_memory, 0);
     return true;
 }
 
-void Buffer::copyData(const void* data, size_t size) {
+void Buffer::copyData(const void* data, size_t size, size_t offset) {
     void* mappedData;
-    vkMapMemory(m_deviceHandle, m_memory, 0, size, 0, &mappedData);
+    vkMapMemory(m_deviceHandle, m_memory, offset, size, 0, &mappedData);
     std::memcpy(mappedData, data, size);
     vkUnmapMemory(m_deviceHandle, m_memory);
 }

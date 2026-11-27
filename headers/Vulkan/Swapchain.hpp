@@ -8,15 +8,15 @@ class Device;
 
 class Swapchain {
 private:
-    VkSwapchainKHR m_swapchain;
+    VkSwapchainKHR m_swapchain = VK_NULL_HANDLE;
 
     std::vector<VkImage> m_images;
     std::vector<VkImageView> m_imageViews;
 
-    VkFormat m_imageFormat;
-    VkExtent2D m_extent;
+    VkFormat m_imageFormat = VK_FORMAT_UNDEFINED;
+    VkExtent2D m_extent{};
 
-    VkDevice m_deviceHandle;
+    VkDevice m_deviceHandle = VK_NULL_HANDLE;
 
     VkSurfaceFormatKHR chooseSurfaceFormat(std::vector<VkSurfaceFormatKHR>& avaibleFormats);
     VkPresentModeKHR choosePresentMode(std::vector<VkPresentModeKHR>& avaiblePresetModes, bool vsync);

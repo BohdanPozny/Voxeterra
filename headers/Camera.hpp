@@ -40,7 +40,6 @@ public:
     // Input-driven camera updates.
     void processKeyboard(int direction, float deltaTime);
     void processMouseMovement(float xoffset, float yoffset);
-    void processMouseScroll(float yoffset);
     
     glm::vec3 getPosition() const { return m_position; }
     glm::vec3 getFront() const { return m_front; }

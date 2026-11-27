@@ -1,4 +1,5 @@
 #include "StateManager.hpp"
+#include "utils/Profiler.hpp"
 #include <iostream>
 
 StateManager::StateManager() 
@@ -17,14 +18,13 @@ void StateManager::changeState(GameState newState) {
 }
 
 void StateManager::update(float deltaTime) {
-    static bool firstUpdate = true;
-    
+    ZoneScoped;
     // Fire onEnter for the initial state on the first update.
-    if (firstUpdate) {
+    if (m_firstUpdate) {
         if (m_states.find(m_currentState) != m_states.end()) {
             m_states[m_currentState]->onEnter();
         }
-        firstUpdate = false;
+        m_firstUpdate = false;
     }
     
     // Handle pending state transition requested last frame.

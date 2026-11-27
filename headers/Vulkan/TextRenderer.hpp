@@ -5,6 +5,7 @@
 #include <string>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 class Device;
 class Pipeline2D;
@@ -45,7 +46,7 @@ public:
     VkImageView getImageView() const { return m_fontImageView; }
     VkSampler getSampler() const { return m_fontSampler; }
     
-    // Must stay binary-compatible with UIRenderer::UIVertex.
+    // Layout must match the Pipeline2D vertex input (32 bytes).
     struct UIVertex {
         glm::vec2 position;
         glm::vec4 color;
@@ -62,6 +63,5 @@ public:
     int getFontSize() const { return m_fontSize; }
     
 private:
-    bool loadFont(const std::string& fontPath);
-    void generateBitmapFont();
+    bool uploadAtlas(VkBuffer staging, uint32_t width, uint32_t height);
 };

@@ -7,7 +7,6 @@ void InputManager::init(GLFWwindow* window) {
     double x, y;
     glfwGetCursorPos(window, &x, &y);
     m_mousePos = glm::vec2(static_cast<float>(x), static_cast<float>(y));
-    m_lastMousePos = m_mousePos;
 }
 
 void InputManager::beginFrame() {
@@ -33,12 +32,11 @@ void InputManager::beginFrame() {
     glm::vec2 newPos(static_cast<float>(x), static_cast<float>(y));
 
     if (m_firstMouse) {
-        m_lastMousePos = newPos;
+        m_mousePos = newPos;
         m_firstMouse = false;
     }
 
-    m_mouseDelta = newPos - m_lastMousePos;
-    m_lastMousePos = m_mousePos;
+    m_mouseDelta = newPos - m_mousePos;
     m_mousePos = newPos;
 }
 

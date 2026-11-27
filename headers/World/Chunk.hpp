@@ -24,6 +24,9 @@ private:
     std::array<VoxelType, CHUNK_VOLUME> m_voxels;
 
     bool m_isDirty = true;  // mesh must be rebuilt before the next draw.
+    int m_opaqueCount = 0;
+    int m_waterCount = 0;
+    void countVoxel(VoxelType type, int delta);
 
     // Opaque mesh.
     std::vector<VoxelVertex> m_vertices;
@@ -47,7 +50,6 @@ public:
 
     // Rebuild the mesh via binary greedy meshing. Passing the world lets us
     // sample neighbour chunks and suppress seams on shared borders.
-    void generateMesh();
     void generateMesh(const World* world);
     
     // Getters
@@ -59,8 +61,8 @@ public:
     bool isDirty() const { return m_isDirty; }
     void setDirty(bool dirty) { m_isDirty = dirty; }
 
-    // Debug helper: fill the chunk with a half-solid stone column plus random grass.
-    void fillTestData();
+    // Free CPU-side mesh storage once it has been uploaded to the GPU.
+    void clearMesh();
 
     // World-space block coordinate -> chunk coordinate (floor-division on CHUNK_SIZE).
     static glm::ivec3 worldToChunkCoord(const glm::ivec3& worldBlock);

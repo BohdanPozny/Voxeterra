@@ -13,6 +13,7 @@ private:
     glm::vec4 m_pressedColor;
     std::function<void()> m_onClick;
     bool m_wasPressed = false;
+    bool m_mouseWasDown = false;
 
 public:
     UIButton(const glm::vec2& position, const glm::vec2& size, 
@@ -47,12 +48,13 @@ public:
         
         m_hovered = contains(mousePos);
         
-        if (m_hovered && mousePressed && !m_wasPressed) {
+        if (m_hovered && mousePressed && !m_mouseWasDown) {
             m_wasPressed = true;
         } else if (!mousePressed && m_wasPressed) {
-            if (m_hovered && m_onClick) m_onClick();
             m_wasPressed = false;
+            if (m_hovered && m_onClick) m_onClick();
         }
+        m_mouseWasDown = mousePressed;
     }
     void setOnClick(std::function<void()> callback) { m_onClick = callback; }
     void setText(const std::string& text) { m_text = text; }

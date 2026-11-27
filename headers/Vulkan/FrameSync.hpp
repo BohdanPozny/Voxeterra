@@ -3,10 +3,10 @@
 #include <vulkan/vulkan.h>
 #include <vector>
 
-// Per-frame synchronization primitives (MAX_FRAMES_IN_FLIGHT slots):
-//   imageAvailable : signalled when the swapchain image is ready to render into.
-//   renderFinished : signalled when GPU work for the frame has completed.
-//   inFlightFence  : host-side fence preventing the CPU from lapping the GPU.
+// Synchronization primitives:
+//   imageAvailable : per frame slot, signalled when the swapchain image is ready to render into.
+//   renderFinished : per swapchain image, since presentation may still hold it after the frame slot is reused.
+//   inFlightFence  : per frame slot, prevents the CPU from lapping the GPU.
 class FrameSync {
 public:
     FrameSync() = default;
@@ -15,7 +15,8 @@ public:
     FrameSync(const FrameSync&) = delete;
     FrameSync& operator=(const FrameSync&) = delete;
 
-    bool init(VkDevice device, uint32_t maxFramesInFlight);
+    bool init(VkDevice device, uint32_t maxFramesInFlight, uint32_t imageCount);
+    bool recreateRenderFinished(uint32_t imageCount);
     void cleanup();
 
     // Host waits on the fence associated with the given frame slot.
@@ -23,7 +24,7 @@ public:
     void resetFence(uint32_t frameIndex) const;
 
     VkSemaphore getImageAvailable(uint32_t frameIndex) const { return m_imageAvailable[frameIndex]; }
-    VkSemaphore getRenderFinished(uint32_t frameIndex) const { return m_renderFinished[frameIndex]; }
+    VkSemaphore getRenderFinished(uint32_t imageIndex) const { return m_renderFinished[imageIndex]; }
     VkFence getFence(uint32_t frameIndex) const { return m_inFlightFences[frameIndex]; }
 
     uint32_t getMaxFramesInFlight() const { return static_cast<uint32_t>(m_inFlightFences.size()); }
@@ -33,4 +34,6 @@ private:
     std::vector<VkSemaphore> m_imageAvailable;
     std::vector<VkSemaphore> m_renderFinished;
     std::vector<VkFence> m_inFlightFences;
+
+    void destroyRenderFinished();
 };

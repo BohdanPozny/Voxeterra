@@ -3,25 +3,19 @@
 #include "UI/UILabel.hpp"
 #include "UI/UIPanel.hpp"
 #include "Vulkan/Device.hpp"
-#include "Vulkan/Pipeline2D.hpp"
-#include "Vulkan/Buffer.hpp"
-#include "Vulkan/TextRenderer.hpp"
+#include "utils/Profiler.hpp"
 #include <iostream>
-#include <vector>
-#include <cstring>
 #include <string>
-#include <fstream>
 
 UIRenderer::~UIRenderer() {
     cleanup();
 }
 
 bool UIRenderer::init(Device& device, VkRenderPass renderPass, VkExtent2D screenExtent,
-                      const std::string& fontPath, int fontSize) {
+                      const std::string& fontPath, int fontSize, uint32_t frameCount) {
     m_device = device.getLogicalDevice();
-    m_physicalDevice = device.getPhysicalDevice();
     m_devicePtr = &device;
-    m_screenExtent = screenExtent;
+    m_frameBuffers.resize(frameCount);
 
     m_pipeline2D = std::make_unique<Pipeline2D>();
     if (!m_pipeline2D->init(device, renderPass, screenExtent)) {
@@ -113,20 +107,9 @@ void UIRenderer::cleanup() {
     m_textRenderer.reset();
     if (m_pipeline2D) m_pipeline2D->cleanup();
     m_pipeline2D.reset();
-    m_vertexBuffer.reset();
+    m_frameBuffers.clear();
 
     m_device = VK_NULL_HANDLE;
-}
-
-void UIRenderer::renderElement(UIElement* element, VkCommandBuffer commandBuffer) {
-    if (!element || !element->isVisible()) return;
-
-    // Prefer renderUI(): it batches the entire tree in one draw call.
-    clearBatch();
-    addQuad(element->getPosition(), element->getSize(), element->getColor());
-    for (const auto& child : element->getChildren()) {
-        renderElement(child.get(), commandBuffer);
-    }
 }
 
 void UIRenderer::addQuad(const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color) {
@@ -147,15 +130,11 @@ void UIRenderer::addQuad(const glm::vec2& pos, const glm::vec2& size, const glm:
     m_vertices.push_back({glm::vec2(x1, y2), color, uv});
 }
 
-void UIRenderer::clearBatch() {
-    m_vertices.clear();
-    m_indices.clear();
-}
-
-void UIRenderer::renderUI(UIElement* rootElement, VkCommandBuffer commandBuffer) {
+void UIRenderer::renderUI(UIElement* rootElement, VkCommandBuffer commandBuffer, uint32_t frameIndex) {
+    ZoneScoped;
     if (!rootElement) return;
     
-    clearBatch();
+    m_vertices.clear();
     collectUIElements(rootElement);
     if (m_vertices.empty()) return;
 
@@ -166,21 +145,23 @@ void UIRenderer::renderUI(UIElement* rootElement, VkCommandBuffer commandBuffer)
                                 &m_fontDescriptorSet, 0, nullptr);
     }
 
-    // Grow the vertex buffer geometrically to amortise reallocations.
+    // This frame's fence has been waited on, so its buffer is free to rewrite or replace.
+    FrameBuffer& fb = m_frameBuffers[frameIndex];
     const size_t bufferSize = sizeof(UIVertex) * m_vertices.size();
-    if (!m_vertexBuffer || bufferSize > m_vertexBufferSize) {
-        m_vertexBufferSize = bufferSize * 2;
-        m_vertexBuffer = std::make_unique<Buffer>();
-        if (!m_vertexBuffer->init(*m_devicePtr, m_vertexBufferSize,
-                                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+    if (!fb.buffer || bufferSize > fb.size) {
+        auto buffer = std::make_unique<Buffer>();
+        if (!buffer->init(*m_devicePtr, bufferSize * 2,
+                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
             std::cerr << "[UIRenderer] Failed to create vertex buffer" << std::endl;
             return;
         }
+        fb.buffer = std::move(buffer);
+        fb.size = bufferSize * 2;
     }
-    m_vertexBuffer->copyData(m_vertices.data(), bufferSize);
+    fb.buffer->copyData(m_vertices.data(), bufferSize);
 
-    VkBuffer vertexBuffers[] = {m_vertexBuffer->getBuffer()};
+    VkBuffer vertexBuffers[] = {fb.buffer->getBuffer()};
     VkDeviceSize offsets[] = {0};
     vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
     vkCmdDraw(commandBuffer, static_cast<uint32_t>(m_vertices.size()), 1, 0, 0);
@@ -236,8 +217,7 @@ void UIRenderer::collectUIElements(UIElement* element) {
             const float centerYNDC = (pos.y + size.y * 0.5f) * 2.0f - 1.0f;
             const float textY = centerYNDC + targetHeightNDC * 0.5f;
 
-            auto& vertices = reinterpret_cast<std::vector<TextRenderer::UIVertex>&>(m_vertices);
-            m_textRenderer->renderText(text, glm::vec2(textX, textY), scale, textColor, vertices);
+            m_textRenderer->renderText(text, glm::vec2(textX, textY), scale, textColor, m_vertices);
         } else if (label) {
             // Fallback: 5x7 pixel bitmap font built from quads.
         float pixelSize = element->getSize().y / 9.0f;
@@ -306,25 +286,4 @@ void UIRenderer::collectUIElements(UIElement* element) {
     for (const auto& child : element->getChildren()) {
         collectUIElements(child.get());
     }
-}
-
-// Deprecated: retained so existing references keep linking; renderUI performs the actual draw.
-void UIRenderer::flushBatch(VkCommandBuffer /*commandBuffer*/) {}
-
-glm::vec2 UIRenderer::normalizedToScreen(const glm::vec2& normalized) const {
-    return glm::vec2(normalized.x * 2.0f - 1.0f, normalized.y * 2.0f - 1.0f);
-}
-
-uint32_t UIRenderer::findMemoryType(VkPhysicalDevice physicalDevice, uint32_t typeFilter, VkMemoryPropertyFlags properties) {
-    VkPhysicalDeviceMemoryProperties memProperties;
-    vkGetPhysicalDeviceMemoryProperties(physicalDevice, &memProperties);
-    
-    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-        if ((typeFilter & (1 << i)) && 
-            (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
-    
-    return 0;
 }

@@ -6,7 +6,7 @@
   "graphics": {
     "fov": 70.0,
     "fullscreen": false,
-    "renderDistance": 32,
+    "renderDistance": 12,
     "vsync": true,
     "windowHeight": 1080,
     "windowWidth": 1920

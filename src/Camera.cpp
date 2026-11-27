@@ -71,11 +71,3 @@ void Camera::processMouseMovement(float xoffset, float yoffset) {
 
     updateCameraVectors();
 }
-
-void Camera::processMouseScroll(float yoffset) {
-    m_fov -= yoffset;
-    if (m_fov < 1.0f)
-        m_fov = 1.0f;
-    if (m_fov > 90.0f)
-        m_fov = 90.0f;
-}

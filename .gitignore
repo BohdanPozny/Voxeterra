@@ -87,4 +87,5 @@ tasks.txt
 
 ## Config
 config.json
-doc/
+.aider*
+.direnv/

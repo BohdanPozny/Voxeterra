@@ -9,11 +9,15 @@
 #include "Vulkan/CommandPool.hpp"
 #include "Vulkan/DepthBuffer.hpp"
 #include "Vulkan/FrameSync.hpp"
+#include "utils/Profiler.hpp"
 #include <vulkan/vulkan.h>
 #include <array>
 #include <memory>
 
 class Renderer {
+public:
+    static constexpr uint32_t MAX_FRAMES_IN_FLIGHT = 2;
+
 private:
     Instance m_instance;
     Device m_device;
@@ -24,12 +28,13 @@ private:
     CommandPool m_commandPool;
     VkSurfaceKHR m_surface = VK_NULL_HANDLE;
 
-    static const int MAX_FRAMES_IN_FLIGHT = 2;
     FrameSync m_frameSync;
     uint32_t m_currentFrame = 0;
 
     bool m_isFrameStarted = false;
     bool m_vsync = true;
+
+    TracyVkCtx m_tracyCtx = nullptr;
 
     void recreateSwapchain(Window& window);
 
@@ -57,4 +62,6 @@ public:
     VkExtent2D getSwapchainExtent() { return m_swapchain.getExtent(); }
     uint32_t getImageCount() { return static_cast<uint32_t>(m_swapchain.getImageViews().size()); }
     VkFormat getSwapchainFormat() { return m_swapchain.getFormat(); }
+    uint32_t getCurrentFrame() const { return m_currentFrame; }
+    TracyVkCtx getTracyContext() const { return m_tracyCtx; }
 };

@@ -1,8 +1,11 @@
 #include "Vulkan/Instance.hpp"
 
 #include <GLFW/glfw3.h>
+#include <cstring>
 #include <iostream>
 #include <vector>
+
+static const char* kValidationLayer = "VK_LAYER_KHRONOS_validation";
 
 Instance::~Instance() noexcept {
     if (m_instance != VK_NULL_HANDLE) {
@@ -39,12 +42,32 @@ bool Instance::init(std::string name) noexcept {
     createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
     createInfo.ppEnabledExtensionNames = extensions.data();
 
+#ifndef NDEBUG
+    if (checkValidationLayerSupport()) {
+        createInfo.enabledLayerCount = 1;
+        createInfo.ppEnabledLayerNames = &kValidationLayer;
+    } else {
+        std::cerr << "[Instance] " << kValidationLayer << " not available" << std::endl;
+    }
+#endif
+
     VkResult result = vkCreateInstance(&createInfo, nullptr, &m_instance);
     if (result != VK_SUCCESS) {
         std::cerr << "[Instance] vkCreateInstance failed (code " << result << ")" << std::endl;
         return false;
     }
     return true;
+}
+
+bool Instance::checkValidationLayerSupport() noexcept {
+    uint32_t count = 0;
+    vkEnumerateInstanceLayerProperties(&count, nullptr);
+    std::vector<VkLayerProperties> layers(count);
+    vkEnumerateInstanceLayerProperties(&count, layers.data());
+    for (const auto& layer : layers) {
+        if (std::strcmp(layer.layerName, kValidationLayer) == 0) return true;
+    }
+    return false;
 }
 
 VkInstance Instance::getInstance() noexcept {

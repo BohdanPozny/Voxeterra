@@ -20,10 +20,11 @@ private:
 
     QueueFamilyIndices m_queueIndices;
 
-    VkQueue m_graphicsQueue;
-    VkQueue m_presentQueue;
-    
+    VkQueue m_graphicsQueue = VK_NULL_HANDLE;
+    VkQueue m_presentQueue = VK_NULL_HANDLE;
+
     bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface) const;
+    int rateDevice(VkPhysicalDevice device) const;
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) const;
     bool pickPhysicalDevice(VkInstance instance, VkSurfaceKHR surface) noexcept;
 

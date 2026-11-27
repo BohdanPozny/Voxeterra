@@ -14,7 +14,7 @@ private:
     
     size_t m_size = 0;
 
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t& outIndex);
 
 public:
     Buffer() = default;
@@ -28,7 +28,7 @@ public:
               VkBufferUsageFlags usage,
               VkMemoryPropertyFlags properties) noexcept;
 
-    void copyData(const void* data, size_t size);
+    void copyData(const void* data, size_t size, size_t offset = 0);
 
     VkBuffer getBuffer() const noexcept { return m_buffer; }
     VkDeviceMemory getMemory() const noexcept { return m_memory; }

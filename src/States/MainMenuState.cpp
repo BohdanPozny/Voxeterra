@@ -43,7 +43,6 @@ void MainMenuState::createUI() {
     );
     exitBtn->setOnClick([this]() {
         std::cout << "[UI] Exit clicked! Closing game..." << std::endl;
-        m_shouldExit = true;
         if (m_engine) {
             glfwSetWindowShouldClose(m_engine->getWindow().getWindow(), GLFW_TRUE);
         }
@@ -61,7 +60,7 @@ void MainMenuState::onEnter() {
 
     // Menu needs a visible cursor for button clicks.
     if (m_engine && m_engine->getWindow().getWindow()) {
-        glfwSetInputMode(m_engine->getWindow().getWindow(), GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+        m_engine->getInput().setCursorEnabled(true);
         glfwSetWindowTitle(m_engine->getWindow().getWindow(), "Voxterra");
     }
 }
@@ -85,10 +84,10 @@ void MainMenuState::handleInput() {
 
     auto& input = m_engine->getInput();
     glm::vec2 normalizedMouse = input.getNormalizedMousePosition();
-    bool justClicked = input.isMouseButtonPressed(GLFW_MOUSE_BUTTON_LEFT);
+    bool mouseDown = input.isMouseButtonDown(GLFW_MOUSE_BUTTON_LEFT);
 
-    // Dispatch to the widget tree (edge-triggered click).
-    m_menuPanel->handleInput(normalizedMouse, justClicked);
+    // Buttons fire on release, so they need the held state rather than the edge.
+    m_menuPanel->handleInput(normalizedMouse, mouseDown);
 }
 
 UIElement* MainMenuState::getUIRoot() {

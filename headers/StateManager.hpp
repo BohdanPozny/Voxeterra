@@ -10,6 +10,7 @@ private:
     GameState m_currentState;
     GameState m_nextState;
     bool m_shouldChangeState = false;
+    bool m_firstUpdate = true;
 
 public:
     StateManager();
