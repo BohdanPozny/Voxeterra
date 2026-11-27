@@ -16,6 +16,7 @@
     "fpsLimit": 0,
     "fullscreen": false,
     "renderDistance": 12,
+    "retina": false,
     "vsync": true,
     "windowHeight": 1080,
     "windowWidth": 1920

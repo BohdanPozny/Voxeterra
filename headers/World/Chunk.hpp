@@ -1,73 +1,43 @@
 #pragma once
 
 #include "World/Voxel.hpp"
-#include <array>
-#include <memory>
-#include <vector>
+#include <cstddef>
 #include <glm/glm.hpp>
-
-class World;
 
 // 64^3 matches the binary greedy meshing implementation (uint64 columns).
 constexpr int CHUNK_SIZE = 64;
-constexpr int CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
+// World height in voxels (25.6 m); a full-detail column is 4 chunks tall.
+constexpr int WORLD_HEIGHT = 256;
 
-// Vertex layout uploaded to voxel.vert (36 bytes: pos + normal + color).
-struct VoxelVertex {
-    glm::vec3 position;
-    glm::vec3 normal;
-    glm::vec3 color;
-};
+// A column of chunks in XZ at a level of detail: level L covers (64 << L) voxels per
+// side with cells of (1 << L) voxels, so every level meshes the same number of cells.
+struct ColumnKey {
+    int level = 0;
+    int x = 0;
+    int z = 0;
 
-class Chunk {
-private:
-    glm::ivec3 m_position;  // chunk coordinate (not block coordinate).
-    // Allocated on the first non-air voxel; all-air chunks (most of the sky) cost nothing.
-    std::unique_ptr<std::array<VoxelType, CHUNK_VOLUME>> m_voxels;
-
-    bool m_isDirty = true;  // mesh must be rebuilt before the next draw.
-    int m_opaqueCount = 0;
-    int m_waterCount = 0;
-    void countVoxel(VoxelType type, int delta);
-
-    // Opaque mesh.
-    std::vector<VoxelVertex> m_vertices;
-    std::vector<uint32_t>    m_indices;
-
-    // Translucent (water) mesh rendered in a separate alpha-blended pass.
-    std::vector<VoxelVertex> m_waterVertices;
-    std::vector<uint32_t>    m_waterIndices;
-    inline int getIndex(int x, int y, int z) const {
-        return x + y * CHUNK_SIZE + z * CHUNK_SIZE * CHUNK_SIZE;
+    bool operator==(const ColumnKey&) const = default;
+    int cellSize() const { return 1 << level; }
+    int sizeVoxels() const { return CHUNK_SIZE << level; }
+    int chunkCount() const {
+        const int cells = WORLD_HEIGHT >> level;
+        return cells > CHUNK_SIZE ? cells / CHUNK_SIZE : 1;
     }
-
-public:
-    Chunk(const glm::ivec3& position);
-    ~Chunk() = default;
-
-    // Voxel accessors (local chunk coordinates).
-    VoxelType getVoxel(int x, int y, int z) const;
-    void      setVoxel(int x, int y, int z, VoxelType type);
-    bool      isInBounds(int x, int y, int z) const;
-
-    // Rebuild the mesh via binary greedy meshing. Passing the world lets us
-    // sample neighbour chunks and suppress seams on shared borders.
-    void generateMesh(const World* world);
-    
-    // Getters
-    const glm::ivec3& getPosition() const { return m_position; }
-    const std::vector<VoxelVertex>& getVertices() const { return m_vertices; }
-    const std::vector<uint32_t>& getIndices() const { return m_indices; }
-    const std::vector<VoxelVertex>& getWaterVertices() const { return m_waterVertices; }
-    const std::vector<uint32_t>& getWaterIndices() const { return m_waterIndices; }
-    bool isDirty() const { return m_isDirty; }
-    void setDirty(bool dirty) { m_isDirty = dirty; }
-
-    // Free CPU-side mesh storage once it has been uploaded to the GPU.
-    void clearMesh();
-
-    // World-space block coordinate -> chunk coordinate (floor-division on CHUNK_SIZE).
-    static glm::ivec3 worldToChunkCoord(const glm::ivec3& worldBlock);
-    // Convenience overload for floating-point world positions (camera, entities).
-    static glm::ivec3 worldToChunkCoord(const glm::vec3& worldPos);
 };
+
+struct ColumnKeyHash {
+    std::size_t operator()(const ColumnKey& k) const {
+        return (static_cast<std::size_t>(k.x) * 73856093u) ^
+               (static_cast<std::size_t>(k.z) * 83492791u) ^
+               (static_cast<std::size_t>(k.level) * 19349663u);
+    }
+};
+
+// Bits of the open-side mask: sides whose neighbour is not a same-level column, so
+// border faces must be emitted (they double as skirts over LOD seams).
+enum : unsigned { SIDE_NEG_X = 1, SIDE_POS_X = 2, SIDE_NEG_Z = 4, SIDE_POS_Z = 8 };
+
+// Full-detail chunk containing a position given in voxel units.
+inline glm::ivec3 worldToChunkCoord(const glm::vec3& voxelPos) {
+    return glm::ivec3(glm::floor(voxelPos / static_cast<float>(CHUNK_SIZE)));
+}

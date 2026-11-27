@@ -13,6 +13,7 @@ private:
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
     
     size_t m_size = 0;
+    void* m_mapped = nullptr;
 
     bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t& outIndex);
 
@@ -29,6 +30,9 @@ public:
               VkMemoryPropertyFlags properties) noexcept;
 
     void copyData(const void* data, size_t size, size_t offset = 0);
+
+    // Maps the whole buffer for its lifetime (host-visible memory only).
+    void* map();
 
     VkBuffer getBuffer() const noexcept { return m_buffer; }
     VkDeviceMemory getMemory() const noexcept { return m_memory; }

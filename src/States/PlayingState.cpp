@@ -153,7 +153,7 @@ void PlayingState::update(float deltaTime) {
             m_debugDir->setText(oss.str());
         }
         if (m_debugMisc) {
-            const glm::ivec3 chunk = Chunk::worldToChunkCoord(pos / VOXEL_SIZE);
+            const glm::ivec3 chunk = worldToChunkCoord(pos / VOXEL_SIZE);
             std::ostringstream oss;
             oss << "Chunk: " << chunk.x << ", " << chunk.z
                 << "  FOV: " << m_engine->getConfig().getFOV();
@@ -169,8 +169,9 @@ void PlayingState::update(float deltaTime) {
         }
         if (m_debugChunks) {
             std::ostringstream oss;
-            oss << "Chunks: " << wr.getVisibleChunks()
-                << " / " << wr.getChunkCount() << " (vis/loaded)";
+            oss << "Columns: " << wr.getVisibleChunks() << " / " << wr.getChunkCount()
+                << " (+" << wr.getPendingColumns() << ")  Mesh: "
+                << wr.getMeshBytes() / (1024 * 1024) << " MB";
             m_debugChunks->setText(oss.str());
         }
     }

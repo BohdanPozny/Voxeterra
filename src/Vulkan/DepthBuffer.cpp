@@ -23,18 +23,18 @@ void DepthBuffer::cleanup() noexcept {
     }
 }
 
-uint32_t DepthBuffer::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) {
+bool DepthBuffer::findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t& outIndex) {
     VkPhysicalDeviceMemoryProperties memProperties;
     vkGetPhysicalDeviceMemoryProperties(m_physicalDevice, &memProperties);
 
     for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
         if ((typeFilter & (1 << i)) && 
             (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
+            outIndex = i;
+            return true;
         }
     }
-
-    return 0;
+    return false;
 }
 
 VkFormat DepthBuffer::findDepthFormat() {
@@ -59,7 +59,9 @@ bool DepthBuffer::init(Device& device, VkExtent2D extent) noexcept {
     imageInfo.format = depthFormat;
     imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
     imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    // Depth is cleared on load and never stored, so it can stay transient: on tile-based
+    // GPUs (Apple silicon) lazily allocated memory keeps it in tile memory only.
+    imageInfo.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
     imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
     imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -75,8 +77,14 @@ bool DepthBuffer::init(Device& device, VkExtent2D extent) noexcept {
     VkMemoryAllocateInfo allocInfo{};
     allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, 
-                                                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    if (!findMemoryType(memRequirements.memoryTypeBits,
+                        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_LAZILY_ALLOCATED_BIT,
+                        allocInfo.memoryTypeIndex) &&
+        !findMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                        allocInfo.memoryTypeIndex)) {
+        std::cerr << "[DepthBuffer] No device-local memory type" << std::endl;
+        return false;
+    }
 
     if (vkAllocateMemory(m_deviceHandle, &allocInfo, nullptr, &m_depthImageMemory) != VK_SUCCESS) {
         std::cerr << "[DepthBuffer] Failed to allocate depth image memory" << std::endl;

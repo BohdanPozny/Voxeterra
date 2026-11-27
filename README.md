@@ -7,7 +7,10 @@ Linux, Windows, and macOS (via MoltenVK).
 
 - Vulkan 1.2 renderer with separate 3D world and 2D UI pipelines
 - Chunked world with binary greedy meshing; one voxel is 0.1 m
-- Streaming chunk loader around the camera
+- Quadtree level of detail: full detail within ~50 m, cells double in size
+  with every ring further out, so the view distance is practically unlimited
+- Terrain with spaghetti caves, generated and meshed on background threads
+- Packed 4-byte vertices sub-allocated from a few shared GPU buffers
 - TTF font atlas + text rendering
 - Simple state machine (main menu, playing, paused, settings)
 - Settings screen: view distance, FPS limit, VSync, movement speed, key bindings
@@ -34,6 +37,20 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ./build/Voxterra
 ```
+
+### macOS notes
+
+- **Retina**: by default the framebuffer matches the window size in points, so a
+  Retina display renders a quarter of the pixels. Set `graphics.retina` to
+  `true` in `config.json` for full resolution (restart required).
+- **Pipeline cache**: `pipeline_cache.bin` is written next to the executable
+  after start-up, so later launches skip MoltenVK's SPIR-V → Metal translation
+  and pipeline compilation. Delete it to force a rebuild; data from another
+  GPU or driver is ignored automatically.
+- **Tile memory**: the depth buffer is a transient attachment in lazily
+  allocated memory, which Apple GPUs keep in on-chip tile memory only.
+- **Worker threads** run at `QOS_CLASS_USER_INITIATED`, so on Apple silicon
+  they are scheduled on performance cores just below the render thread.
 
 ### Windows (Visual Studio)
 
@@ -65,8 +82,9 @@ cmake --build build-tracy -j
 tracy            # GUI from shell.nix; must be the same version (0.13.1)
 ```
 
-CPU zones cover the frame loop, chunk streaming, generation and meshing; GPU
-zones time the world and UI passes; plots track loaded/visible chunks, and
+CPU zones cover the frame loop, streaming and the column worker threads
+(generation, caves, meshing); GPU zones time the world and UI passes; plots
+track loaded/pending/visible columns and mesh memory, and
 the "Vulkan buffers" memory pool tracks buffer allocations.
 
 ## Project layout
@@ -75,7 +93,7 @@ the "Vulkan buffers" memory pool tracks buffer allocations.
 Voxeterra/
 ├── headers/          # Public headers
 │   ├── Vulkan/       # Vulkan wrappers (Instance, Device, Swapchain, ...)
-│   ├── World/        # Voxel, Chunk, World, WorldRenderer
+│   ├── World/        # Terrain, Mesher, ColumnWorkers, WorldRenderer
 │   ├── UI/           # UIElement, UIPanel, UIButton, UILabel
 │   ├── States/       # MainMenu / Playing / Paused / Settings
 │   ├── Input/        # InputManager, key names
@@ -100,8 +118,9 @@ missing, a file with default values is written there. The Settings screen
 (main menu or pause menu) edits it and applies changes immediately:
 
 - **View distance**: 2 chunks and up, no upper limit; a chunk is 64³ voxels,
-  i.e. 6.4 m. Steps by 1 up to 16, then by 4. Memory grows with the square of
-  the distance (~260 KB per non-empty chunk, 4 chunks per column).
+  i.e. 6.4 m. Steps by 1 up to 16, then by 4. Thanks to LOD the number of
+  columns grows only logarithmically with distance (896 m ≈ 1 100 columns,
+  ~15 MB of mesh data).
 - **FPS limit**: Unlimited or 30..240 (`fpsLimit`, 0 = unlimited).
 - **Speed**: camera movement speed, 1..200 m/s (`movementSpeed`).
 - **VSync**: FIFO when on, mailbox/immediate when off.
@@ -111,6 +130,8 @@ missing, a file with default values is written there. The Settings screen
 
 World units are metres: camera position, `movementSpeed` (m/s) and terrain
 are expressed in metres, and the voxel grid is scaled by 0.1 when rendered.
+The world is generated deterministically and only meshes are kept, so no voxel
+data stays in memory; the camera spawns on the nearest dry land.
 Debug builds enable `VK_LAYER_KHRONOS_validation` when it is installed.
 
 On a fresh clone `config.json` does not exist yet; CMake copies

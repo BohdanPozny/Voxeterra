@@ -21,7 +21,8 @@ bool Pipeline::initWithVertexInput(VkDevice device,
                                     const std::string& fragShaderPath,
                                     VkDescriptorSetLayout descriptorSetLayout,
                                     bool enableAlphaBlending,
-                                    bool enableDepthWrite) noexcept {
+                                    bool enableDepthWrite,
+                                    VkPipelineCache pipelineCache) noexcept {
     m_deviceHandle = device;
     
     // Load shader modules.
@@ -50,31 +51,17 @@ bool Pipeline::initWithVertexInput(VkDevice device,
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
-    // Vertex input layout for VoxelVertex (36 bytes: position + normal + color).
+    // One packed uint32 per vertex (see World/Mesher.hpp).
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
-    bindingDescription.stride = sizeof(float) * 9;
+    bindingDescription.stride = sizeof(uint32_t);
     bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    std::array<VkVertexInputAttributeDescription, 3> attributeDescriptions{};
-
-    // Position
+    std::array<VkVertexInputAttributeDescription, 1> attributeDescriptions{};
     attributeDescriptions[0].binding = 0;
     attributeDescriptions[0].location = 0;
-    attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributeDescriptions[0].format = VK_FORMAT_R32_UINT;
     attributeDescriptions[0].offset = 0;
-
-    // Normal
-    attributeDescriptions[1].binding = 0;
-    attributeDescriptions[1].location = 1;
-    attributeDescriptions[1].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[1].offset = sizeof(float) * 3;
-
-    // Color
-    attributeDescriptions[2].binding = 0;
-    attributeDescriptions[2].location = 2;
-    attributeDescriptions[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributeDescriptions[2].offset = sizeof(float) * 6;
 
     VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
     vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -161,6 +148,13 @@ bool Pipeline::initWithVertexInput(VkDevice device,
     // Pipeline Layout
     VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
     pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    // Per-draw column origin and cell size.
+    VkPushConstantRange pushRange{};
+    pushRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    pushRange.offset = 0;
+    pushRange.size = sizeof(float) * 4;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    pipelineLayoutInfo.pPushConstantRanges = &pushRange;
     if (descriptorSetLayout != VK_NULL_HANDLE) {
         pipelineLayoutInfo.setLayoutCount = 1;
         pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
@@ -197,7 +191,7 @@ bool Pipeline::initWithVertexInput(VkDevice device,
     pipelineInfo.subpass = 0;
     pipelineInfo.basePipelineHandle = VK_NULL_HANDLE;
 
-    if (vkCreateGraphicsPipelines(m_deviceHandle, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_pipeline) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(m_deviceHandle, pipelineCache, 1, &pipelineInfo, nullptr, &m_pipeline) != VK_SUCCESS) {
         std::cerr << "[Pipeline] Failed to create voxel graphics pipeline" << std::endl;
         return false;
     }

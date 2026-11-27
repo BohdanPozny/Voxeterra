@@ -23,6 +23,11 @@ private:
     VkQueue m_graphicsQueue = VK_NULL_HANDLE;
     VkQueue m_presentQueue = VK_NULL_HANDLE;
 
+    // Persisted between runs: MoltenVK translates SPIR-V to Metal and compiles pipelines
+    // on first use, which dominates start-up on macOS.
+    VkPipelineCache m_pipelineCache = VK_NULL_HANDLE;
+    void createPipelineCache();
+
     bool isDeviceSuitable(VkPhysicalDevice device, VkSurfaceKHR surface) const;
     int rateDevice(VkPhysicalDevice device) const;
     QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) const;
@@ -44,4 +49,7 @@ public:
     
     VkQueue getGraphicsQueue() const { return m_graphicsQueue; }
     VkQueue getPresentQueue() const { return m_presentQueue; }
+    VkPipelineCache getPipelineCache() const { return m_pipelineCache; }
+    // Writes the cache next to the executable; call once every pipeline exists.
+    void savePipelineCache();
 };

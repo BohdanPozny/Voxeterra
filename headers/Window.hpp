@@ -31,7 +31,9 @@ public:
     // Create the window. If fullscreen is true the primary monitor's native
     // resolution is used and (w, h) are ignored. Otherwise a maximized
     // windowed surface at (w, h) is created so it actually fills the screen.
-    bool init(int w, int h, std::string name, bool fullscreen = false) noexcept;
+    // retina selects a full-resolution framebuffer on macOS HiDPI displays; otherwise the
+    // framebuffer matches the window size in points (a quarter of the pixels).
+    bool init(int w, int h, std::string name, bool fullscreen = false, bool retina = false) noexcept;
 
     bool shouldClose() noexcept;
     bool createWindowSurface(VkInstance instance, VkSurfaceKHR* surface) const noexcept;

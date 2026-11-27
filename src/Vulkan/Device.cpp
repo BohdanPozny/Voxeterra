@@ -1,11 +1,18 @@
 #include "Vulkan/Device.hpp"
-#include <iostream>
-#include <vector>
 #include <cstring>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 #include <set>
+#include <vector>
+
+namespace {
+const char* kPipelineCacheFile = "pipeline_cache.bin";
+}
 
 Device::~Device() noexcept {
     if (m_device != VK_NULL_HANDLE) {
+        if (m_pipelineCache != VK_NULL_HANDLE) vkDestroyPipelineCache(m_device, m_pipelineCache, nullptr);
         vkDestroyDevice(m_device, nullptr);
         m_device = VK_NULL_HANDLE;
     }
@@ -68,7 +75,42 @@ bool Device::init(VkInstance instance, VkSurfaceKHR surface) noexcept {
 
     vkGetDeviceQueue(m_device, m_queueIndices.graphicsFamily.value(), 0, &m_graphicsQueue);
     vkGetDeviceQueue(m_device, m_queueIndices.presentFamily.value(),  0, &m_presentQueue);
+    createPipelineCache();
     return true;
+}
+
+void Device::createPipelineCache() {
+    std::vector<char> data;
+    if (std::ifstream file{kPipelineCacheFile, std::ios::binary}) {
+        data.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    }
+
+    // Data from another GPU or driver version is discarded rather than handed to the driver.
+    VkPhysicalDeviceProperties props;
+    vkGetPhysicalDeviceProperties(m_physicalDevice, &props);
+    VkPipelineCacheHeaderVersionOne header{};
+    if (data.size() >= sizeof(header)) std::memcpy(&header, data.data(), sizeof(header));
+    const bool compatible = data.size() >= sizeof(header) &&
+        header.headerVersion == VK_PIPELINE_CACHE_HEADER_VERSION_ONE &&
+        header.vendorID == props.vendorID && header.deviceID == props.deviceID &&
+        std::memcmp(header.pipelineCacheUUID, props.pipelineCacheUUID, VK_UUID_SIZE) == 0;
+
+    VkPipelineCacheCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+    info.initialDataSize = compatible ? data.size() : 0;
+    info.pInitialData = compatible ? data.data() : nullptr;
+    if (vkCreatePipelineCache(m_device, &info, nullptr, &m_pipelineCache) != VK_SUCCESS) {
+        m_pipelineCache = VK_NULL_HANDLE;  // pipelines are still created, just without caching
+    }
+}
+
+void Device::savePipelineCache() {
+    if (m_pipelineCache == VK_NULL_HANDLE) return;
+    size_t size = 0;
+    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, nullptr) != VK_SUCCESS || size == 0) return;
+    std::vector<char> data(size);
+    if (vkGetPipelineCacheData(m_device, m_pipelineCache, &size, data.data()) != VK_SUCCESS) return;
+    std::ofstream(kPipelineCacheFile, std::ios::binary).write(data.data(), static_cast<std::streamsize>(size));
 }
 
 QueueFamilyIndices Device::findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) const {

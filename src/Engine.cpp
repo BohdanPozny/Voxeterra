@@ -4,6 +4,7 @@
 #include "States/PausedState.hpp"
 #include "States/SettingsState.hpp"
 #include "UI/UIElement.hpp"
+#include "World/Terrain.hpp"
 #include "utils/Profiler.hpp"
 #include <iostream>
 #include <array>
@@ -22,6 +23,7 @@ bool Engine::init() {
     m_camera.setFOV(m_config.getFOV());
     m_camera.setMouseSensitivity(m_config.getMouseSensitivity());
     m_camera.setMovementSpeed(m_config.getMovementSpeed());
+    m_camera.setPosition(findSpawnPoint());
 
     if (!initWindow())  return false;
     if (!initVulkan())  return false;
@@ -45,7 +47,7 @@ bool Engine::init() {
 
 bool Engine::initWindow() {
     if (!m_window.init(m_config.getWindowWidth(), m_config.getWindowHeight(),
-                       "Voxterra", m_config.isFullscreen())) {
+                       "Voxterra", m_config.isFullscreen(), m_config.isRetina())) {
         std::cerr << "[Engine] Failed to create window" << std::endl;
         return false;
     }
@@ -65,7 +67,6 @@ bool Engine::initVulkan() {
         std::cerr << "[Engine] Failed to init world renderer" << std::endl;
         return false;
     }
-    m_worldRenderer.generateWorld();
 
     VkExtent2D ext = m_renderer.getSwapchainExtent();
     m_camera.setAspectRatio(static_cast<float>(ext.width) / static_cast<float>(ext.height));
@@ -76,6 +77,9 @@ bool Engine::initVulkan() {
         std::cerr << "[Engine] Failed to init UI renderer" << std::endl;
         return false;
     }
+
+    // All pipelines exist now; later runs skip shader translation (MoltenVK) and compilation.
+    m_renderer.getDevice().savePipelineCache();
 
     std::cout << "[Engine] Vulkan initialized via Renderer" << std::endl;
     return true;

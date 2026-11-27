@@ -38,5 +38,5 @@ public:
     VkDescriptorSetLayout getDescriptorSetLayout() const { return m_descriptorSetLayout; }
 
 private:
-    void createPipeline(VkRenderPass renderPass, VkExtent2D screenExtent);
+    void createPipeline(VkRenderPass renderPass, VkExtent2D screenExtent, VkPipelineCache pipelineCache);
 };

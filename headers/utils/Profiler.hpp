@@ -6,6 +6,7 @@
 #ifdef TRACY_ENABLE
 #include <tracy/Tracy.hpp>
 #include <tracy/TracyVulkan.hpp>
+#define ProfilerSetThreadName(name) tracy::SetThreadName(name)
 #else
 #define ZoneScoped
 #define ZoneScopedN(name)
@@ -15,5 +16,6 @@
 #define TracyFreeN(ptr, name)
 #define TracyVkZone(ctx, cmdbuf, name)
 #define TracyVkCollect(ctx, cmdbuf)
+#define ProfilerSetThreadName(name)
 using TracyVkCtx = void*;
 #endif

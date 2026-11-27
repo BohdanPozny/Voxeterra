@@ -20,6 +20,7 @@ private:
     int m_windowHeight = 600;
     bool m_fullscreen = false;
     bool m_vsync = true;
+    bool m_retina = false;     // macOS: full Retina resolution (4x the pixels)
     int m_renderDistance = 8;  // in chunks
     int m_fpsLimit = 0;        // 0 = unlimited
     float m_fov = 70.0f;
@@ -49,6 +50,7 @@ public:
     int getWindowHeight() const { return m_windowHeight; }
     bool isFullscreen() const { return m_fullscreen; }
     bool isVsync() const { return m_vsync; }
+    bool isRetina() const { return m_retina; }
     int getRenderDistance() const { return m_renderDistance; }
     int getFpsLimit() const { return m_fpsLimit; }
     float getFOV() const { return m_fov; }

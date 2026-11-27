@@ -7,7 +7,7 @@ Window::~Window() noexcept {
     glfwTerminate();
 }
 
-bool Window::init(int w, int h, std::string name, bool fullscreen) noexcept {
+bool Window::init(int w, int h, std::string name, bool fullscreen, bool retina) noexcept {
     width = w;
     height = h;
     nameWindow = name;
@@ -20,6 +20,11 @@ bool Window::init(int w, int h, std::string name, bool fullscreen) noexcept {
     // Disable the OpenGL context creation; resizable for tiling WMs / dev ergonomics.
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+#ifdef __APPLE__
+    glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, retina ? GLFW_TRUE : GLFW_FALSE);
+#else
+    (void)retina;
+#endif
 
     GLFWmonitor* monitor = nullptr;
     if (fullscreen) {

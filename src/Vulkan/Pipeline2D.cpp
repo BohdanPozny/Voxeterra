@@ -55,7 +55,7 @@ bool Pipeline2D::init(Device& device, VkRenderPass renderPass, VkExtent2D screen
     }
     
     // Build the graphics pipeline.
-    createPipeline(renderPass, screenExtent);
+    createPipeline(renderPass, screenExtent, device.getPipelineCache());
     
     std::cout << "[Pipeline2D] Initialized successfully" << std::endl;
     return true;
@@ -84,7 +84,7 @@ void Pipeline2D::cleanup() {
     m_device = VK_NULL_HANDLE;
 }
 
-void Pipeline2D::createPipeline(VkRenderPass renderPass, VkExtent2D screenExtent) {
+void Pipeline2D::createPipeline(VkRenderPass renderPass, VkExtent2D screenExtent, VkPipelineCache pipelineCache) {
     // Vertex input
     VkVertexInputBindingDescription bindingDescription{};
     bindingDescription.binding = 0;
@@ -219,7 +219,7 @@ void Pipeline2D::createPipeline(VkRenderPass renderPass, VkExtent2D screenExtent
     pipelineInfo.renderPass = renderPass;
     pipelineInfo.subpass = 0;
     
-    if (vkCreateGraphicsPipelines(m_device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &m_pipeline) != VK_SUCCESS) {
+    if (vkCreateGraphicsPipelines(m_device, pipelineCache, 1, &pipelineInfo, nullptr, &m_pipeline) != VK_SUCCESS) {
         std::cerr << "[Pipeline2D] Failed to create graphics pipeline" << std::endl;
     }
 }

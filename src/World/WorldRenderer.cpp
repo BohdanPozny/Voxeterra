@@ -2,22 +2,37 @@
 #include "Vulkan/Device.hpp"
 #include "Vulkan/Renderer.hpp"
 #include "Camera.hpp"
-#include "World/Chunk.hpp"
 #include "utils/Profiler.hpp"
 #include <iostream>
 #include <cstring>
 #include <cmath>
-#include <cstdlib>
 #include <algorithm>
+#include <thread>
 
 namespace {
-constexpr int kWorldYChunks = 4;  // world Y pinned to [0, kWorldYChunks)
+constexpr float kLodFactor = 4.0f;  // a node splits while the camera is closer than this many node sizes
+constexpr int kMaxLevel = 6;
+constexpr uint32_t kQuadsPerDraw = 1u << 18;
+constexpr uint32_t kArenaBlockVertices = 16u << 20;  // 64 MB per block
+constexpr size_t kMaxUploadsPerFrame = 64;
 
-const glm::ivec3 kNeighborOffsets[6] = {
-    { 1, 0, 0}, {-1, 0, 0},
-    { 0, 1, 0}, { 0,-1, 0},
-    { 0, 0, 1}, { 0, 0,-1},
+struct PushConstants {
+    glm::vec4 originScale;  // column origin in voxels, cell size
 };
+
+inline int floorDiv(int a, int b) {
+    return a >= 0 ? a / b : (a - b + 1) / b;
+}
+
+// Distance in XZ from a point to the column's footprint (0 inside).
+float rectDistance(const ColumnKey& key, glm::vec2 p) {
+    const float size = static_cast<float>(key.sizeVoxels());
+    const float x0 = static_cast<float>(key.x) * size;
+    const float z0 = static_cast<float>(key.z) * size;
+    const float dx = std::max({x0 - p.x, 0.0f, p.x - (x0 + size)});
+    const float dz = std::max({z0 - p.y, 0.0f, p.y - (z0 + size)});
+    return std::sqrt(dx * dx + dz * dz);
+}
 }
 
 WorldRenderer::~WorldRenderer() {
@@ -29,40 +44,43 @@ bool WorldRenderer::init(Device& device, VkRenderPass renderPass, VkExtent2D ext
     m_logicalDevice = device.getLogicalDevice();
     m_frameCount = frameCount;
 
-    // 1. Descriptor set layout (UBO binding)
     if (!createDescriptorSetLayout()) {
         std::cerr << "[WorldRenderer] Failed to create descriptor set layout" << std::endl;
         return false;
     }
 
-    // 2. Voxel pipeline (solid): depth-write on, no blending
+    // Voxel pipeline (solid): depth-write on, no blending
     if (!m_pipeline.initWithVertexInput(m_logicalDevice, renderPass, extent,
                                         "shaders/voxel.vert.spv",
                                         "shaders/voxel.frag.spv",
                                         m_descriptorSetLayout,
                                         /*enableAlphaBlending=*/false,
-                                        /*enableDepthWrite=*/true)) {
+                                        /*enableDepthWrite=*/true,
+                                        device.getPipelineCache())) {
         std::cerr << "[WorldRenderer] Failed to create voxel pipeline" << std::endl;
         return false;
     }
 
-    // 2b. Water pipeline: depth-test on / depth-write off + alpha blending
+    // Water pipeline: depth-test on / depth-write off + alpha blending
     if (!m_waterPipeline.initWithVertexInput(m_logicalDevice, renderPass, extent,
                                              "shaders/voxel.vert.spv",
                                              "shaders/water.frag.spv",
                                              m_descriptorSetLayout,
                                              /*enableAlphaBlending=*/true,
-                                             /*enableDepthWrite=*/false)) {
+                                             /*enableDepthWrite=*/false,
+                                             device.getPipelineCache())) {
         std::cerr << "[WorldRenderer] Failed to create water pipeline" << std::endl;
         return false;
     }
 
-    // 3. Uniform buffers
     if (!createUniformBuffers()) return false;
-
-    // 4. Descriptor pool + sets
     if (!createDescriptorPool()) return false;
     if (!createDescriptorSets()) return false;
+    if (!createQuadIndices()) return false;
+    if (!m_arena.init(device, kArenaBlockVertices)) return false;
+
+    const unsigned cores = std::thread::hardware_concurrency();
+    m_workers.start(cores > 1 ? cores - 1 : 1);
 
     std::cout << "[WorldRenderer] Initialized successfully" << std::endl;
     return true;
@@ -71,16 +89,16 @@ bool WorldRenderer::init(Device& device, VkRenderPass renderPass, VkExtent2D ext
 void WorldRenderer::cleanup() {
     if (m_logicalDevice == VK_NULL_HANDLE) return;
 
-    // Voxel buffers
-    m_chunkBuffers.clear();
-    m_pendingMesh.clear();
-    m_retiredBuffers.clear();
-    m_world.reset();
-
-    // Uniform buffers
+    m_workers.stop();
+    m_results.clear();
+    m_columns.clear();
+    m_desired.clear();
+    m_scheduled.clear();
+    m_retired.clear();
+    m_arena.cleanup();
+    m_quadIndices.reset();
     m_uniformBuffers.clear();
 
-    // Descriptors
     m_descriptorSets.clear();
     if (m_descriptorPool != VK_NULL_HANDLE) {
         vkDestroyDescriptorPool(m_logicalDevice, m_descriptorPool, nullptr);
@@ -96,217 +114,200 @@ void WorldRenderer::cleanup() {
     m_device = nullptr;
 }
 
-void WorldRenderer::generateWorld() {
-    m_world = std::make_unique<World>();
-    // Chunks are generated lazily by updateStreaming() as the camera moves.
+bool WorldRenderer::createQuadIndices() {
+    std::vector<uint32_t> indices(static_cast<size_t>(kQuadsPerDraw) * 6);
+    for (uint32_t q = 0; q < kQuadsPerDraw; ++q) {
+        const uint32_t b = q * 4;
+        uint32_t* i = &indices[static_cast<size_t>(q) * 6];
+        i[0] = b; i[1] = b + 1; i[2] = b + 2;
+        i[3] = b; i[4] = b + 2; i[5] = b + 3;
+    }
+    m_quadIndices = std::make_unique<Buffer>();
+    if (!m_quadIndices->init(*m_device, indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                             VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
+        std::cerr << "[WorldRenderer] Failed to create quad index buffer" << std::endl;
+        return false;
+    }
+    m_quadIndices->copyData(indices.data(), indices.size() * sizeof(uint32_t));
+    return true;
 }
 
-void WorldRenderer::retireBuffer(std::unique_ptr<Buffer> buffer) {
-    if (buffer) m_retiredBuffers.emplace_back(m_frameNumber, std::move(buffer));
+float WorldRenderer::distanceTo(const ColumnKey& key) const {
+    return rectDistance(key, m_cameraXZ);
 }
 
-void WorldRenderer::uploadChunk(const glm::ivec3& cpos) {
+void WorldRenderer::selectColumns(int renderDistance) {
     ZoneScoped;
-    Chunk* chunk = m_world->getChunk(cpos);
-    if (!chunk) return;
-    chunk->setDirty(true);
-    chunk->generateMesh(m_world.get());
+    m_desired.clear();
+    const float range = static_cast<float>(renderDistance * CHUNK_SIZE);
+    const int rootSize = CHUNK_SIZE << kMaxLevel;
 
-    const auto& vertices  = chunk->getVertices();
-    const auto& indices   = chunk->getIndices();
-    const auto& wVertices = chunk->getWaterVertices();
-    const auto& wIndices  = chunk->getWaterIndices();
+    // Quadtree descent: leaves are the columns to show, so levels never overlap.
+    auto visit = [&](auto& self, const ColumnKey& key) -> void {
+        const float d = distanceTo(key);
+        if (d > range) return;
+        if (key.level > 0 && d < kLodFactor * static_cast<float>(key.sizeVoxels())) {
+            for (int j = 0; j < 2; ++j)
+                for (int i = 0; i < 2; ++i)
+                    self(self, ColumnKey{key.level - 1, key.x * 2 + i, key.z * 2 + j});
+        } else {
+            m_desired.emplace(key, 0u);
+        }
+    };
 
-    const VkDeviceSize vSize  = vertices.size()  * sizeof(VoxelVertex);
-    const VkDeviceSize iSize  = indices.size()   * sizeof(uint32_t);
-    const VkDeviceSize wvSize = wVertices.size() * sizeof(VoxelVertex);
-    const VkDeviceSize wiSize = wIndices.size()  * sizeof(uint32_t);
-    const VkDeviceSize total  = vSize + iSize + wvSize + wiSize;
+    const int x0 = floorDiv(static_cast<int>(std::floor(m_cameraXZ.x - range)), rootSize);
+    const int x1 = floorDiv(static_cast<int>(std::floor(m_cameraXZ.x + range)), rootSize);
+    const int z0 = floorDiv(static_cast<int>(std::floor(m_cameraXZ.y - range)), rootSize);
+    const int z1 = floorDiv(static_cast<int>(std::floor(m_cameraXZ.y + range)), rootSize);
+    for (int z = z0; z <= z1; ++z)
+        for (int x = x0; x <= x1; ++x)
+            visit(visit, ColumnKey{kMaxLevel, x, z});
 
-    ChunkBuffers cb;
+    // A side is closed only when the neighbour is drawn at the same level.
+    for (auto& [key, sides] : m_desired) {
+        auto missing = [&](int dx, int dz) { return !m_desired.count(ColumnKey{key.level, key.x + dx, key.z + dz}); };
+        sides = (missing(-1, 0) ? SIDE_NEG_X : 0u) | (missing(1, 0) ? SIDE_POS_X : 0u) |
+                (missing(0, -1) ? SIDE_NEG_Z : 0u) | (missing(0, 1) ? SIDE_POS_Z : 0u);
+    }
+}
+
+void WorldRenderer::scheduleBuilds() {
+    ZoneScoped;
+    // Jobs that never started are re-queued below with fresh priorities.
+    for (const auto& job : m_workers.clearQueue()) {
+        auto it = m_scheduled.find(job.key);
+        if (it != m_scheduled.end() && it->second == job.openSides) m_scheduled.erase(it);
+    }
+
+    std::vector<ColumnWorkers::Job> jobs;
+    for (const auto& [key, sides] : m_desired) {
+        auto col = m_columns.find(key);
+        if (col != m_columns.end() && col->second.openSides == sides) continue;
+        auto running = m_scheduled.find(key);
+        if (running != m_scheduled.end() && running->second == sides) continue;
+        m_scheduled[key] = sides;
+        jobs.push_back({key, sides, distanceTo(key)});
+    }
+    m_workers.enqueue(jobs);
+}
+
+void WorldRenderer::retire(const MeshArena::Allocation& alloc) {
+    if (alloc.valid()) m_retired.emplace_back(m_frameNumber, alloc);
+}
+
+void WorldRenderer::upload(ColumnWorkers::Result& result) {
+    ZoneScoped;
+    const auto& mesh = result.mesh;
+    const int cell = result.key.cellSize();
+
+    Column col;
+    col.openSides = result.openSides;
+    col.solidQuads = static_cast<uint32_t>(mesh.solid.size() / 4);
+    col.waterQuads = static_cast<uint32_t>(mesh.water.size() / 4);
+    col.minY = mesh.minY * cell;
+    col.maxY = mesh.maxY * cell;
+
+    const auto total = static_cast<uint32_t>(mesh.solid.size() + mesh.water.size());
     if (total > 0) {
-        ZoneScopedN("Upload chunk buffer");
-        auto buffer = std::make_unique<Buffer>();
-        if (buffer->init(*m_device, total,
-                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
-            cb.indexOffset       = vSize;
-            cb.waterVertexOffset = vSize + iSize;
-            cb.waterIndexOffset  = vSize + iSize + wvSize;
-            if (vSize)  buffer->copyData(vertices.data(),  vSize);
-            if (iSize)  buffer->copyData(indices.data(),   iSize,  cb.indexOffset);
-            if (wvSize) buffer->copyData(wVertices.data(), wvSize, cb.waterVertexOffset);
-            if (wiSize) buffer->copyData(wIndices.data(),  wiSize, cb.waterIndexOffset);
-            cb.indexCount      = static_cast<uint32_t>(indices.size());
-            cb.waterIndexCount = static_cast<uint32_t>(wIndices.size());
-            cb.vertexCount     = vertices.size();
-            cb.buffer = std::move(buffer);
-        }
-    }
-    chunk->clearMesh();
-
-    auto it = m_chunkBuffers.find(cpos);
-    if (it != m_chunkBuffers.end()) {
-        retireBuffer(std::move(it->second.buffer));
-        it->second = std::move(cb);
-    } else {
-        m_chunkBuffers.emplace(cpos, std::move(cb));
-    }
-}
-
-
-void WorldRenderer::rebuildLoadQueue(const glm::ivec3& center, int loadRadius) {
-    ZoneScoped;
-    const int loadSq = loadRadius * loadRadius;
-
-    m_lastStreamCenter = center;
-    m_loadRadius = loadRadius;
-    m_streamingInProgress = true;
-    m_loadQueue.clear();
-    m_loadQueueCursor = 0;
-    m_loadQueue.reserve(static_cast<size_t>(loadSq) * 4 * kWorldYChunks);
-
-    // Disc of (dx, dz) offsets, all Y levels per column.
-    for (int dz = -loadRadius; dz <= loadRadius; ++dz) {
-        for (int dx = -loadRadius; dx <= loadRadius; ++dx) {
-            if (dx * dx + dz * dz > loadSq) continue;       // circular disc
-            for (int cy = 0; cy < kWorldYChunks; ++cy) {
-                m_loadQueue.emplace_back(center.x + dx, cy, center.z + dz);
-            }
+        col.alloc = m_arena.allocate(total);
+        if (col.alloc.valid()) {
+            uint32_t* dst = m_arena.data(col.alloc);
+            std::copy(mesh.solid.begin(), mesh.solid.end(), dst);
+            std::copy(mesh.water.begin(), mesh.water.end(), dst + mesh.solid.size());
+        } else {
+            std::cerr << "[WorldRenderer] Out of mesh memory" << std::endl;
+            col.solidQuads = col.waterQuads = 0;
         }
     }
 
-    // Nearest-first so the player sees the closest chunks materialise first.
-    std::sort(m_loadQueue.begin(), m_loadQueue.end(),
-              [&](const glm::ivec3& a, const glm::ivec3& b) {
-                  int da = (a.x - center.x) * (a.x - center.x)
-                         + (a.z - center.z) * (a.z - center.z);
-                  int db = (b.x - center.x) * (b.x - center.x)
-                         + (b.z - center.z) * (b.z - center.z);
-                  if (da != db) return da < db;
-                  return a.y < b.y;                          // lower chunks first
-              });
+    auto [it, inserted] = m_columns.try_emplace(result.key, col);
+    if (!inserted) {
+        retire(it->second.alloc);
+        it->second = col;
+    }
 }
 
-void WorldRenderer::unloadFarChunks(const glm::ivec3& center, int unloadSq) {
+bool WorldRenderer::uploadResults() {
     ZoneScoped;
-    for (auto it = m_chunkBuffers.begin(); it != m_chunkBuffers.end(); ) {
-        const glm::ivec3& p = it->first;
-        int dx = p.x - center.x;
-        int dz = p.z - center.z;
-        if (dx * dx + dz * dz > unloadSq) {
-            m_world->removeChunk(p);
-            m_pendingMesh.erase(p);
-            retireBuffer(std::move(it->second.buffer));
-            it = m_chunkBuffers.erase(it);
+    m_workers.collect(m_results);
+
+    size_t uploads = 0;
+    auto it = m_results.begin();
+    for (; it != m_results.end() && uploads < kMaxUploadsPerFrame; ++it) {
+        auto scheduled = m_scheduled.find(it->key);
+        if (scheduled != m_scheduled.end() && scheduled->second == it->openSides) m_scheduled.erase(scheduled);
+
+        // Superseded while it was being built.
+        auto wanted = m_desired.find(it->key);
+        if (wanted == m_desired.end() || wanted->second != it->openSides) continue;
+
+        upload(*it);
+        ++uploads;
+    }
+    m_results.erase(m_results.begin(), it);
+    return uploads > 0;
+}
+
+bool WorldRenderer::isCovered(const ColumnKey& stale) const {
+    // Coarser replacement: the desired ancestor must be loaded.
+    for (ColumnKey k = stale; k.level < kMaxLevel; ) {
+        k = ColumnKey{k.level + 1, floorDiv(k.x, 2), floorDiv(k.z, 2)};
+        if (m_desired.count(k)) return m_columns.count(k) > 0;
+    }
+
+    // Finer replacements: every desired column inside the footprint must be loaded.
+    const int size = stale.sizeVoxels();
+    const int sx = stale.x * size, sz = stale.z * size;
+    for (const auto& [key, sides] : m_desired) {
+        if (key.level >= stale.level) continue;
+        const int ks = key.sizeVoxels();
+        const int kx = key.x * ks, kz = key.z * ks;
+        if (kx < sx || kx >= sx + size || kz < sz || kz >= sz + size) continue;
+        if (!m_columns.count(key)) return false;
+    }
+    return true;
+}
+
+void WorldRenderer::dropCoveredColumns() {
+    ZoneScoped;
+    for (auto it = m_columns.begin(); it != m_columns.end(); ) {
+        if (!m_desired.count(it->first) && isCovered(it->first)) {
+            retire(it->second.alloc);
+            it = m_columns.erase(it);
         } else {
             ++it;
         }
     }
 }
 
-bool WorldRenderer::isExpectedChunk(const glm::ivec3& cpos) const {
-    if (cpos.y < 0 || cpos.y >= kWorldYChunks) return false;
-    const int dx = cpos.x - m_lastStreamCenter.x;
-    const int dz = cpos.z - m_lastStreamCenter.z;
-    return dx * dx + dz * dz <= m_loadRadius * m_loadRadius;
-}
-
-bool WorldRenderer::isReadyToMesh(const glm::ivec3& cpos) const {
-    for (const auto& off : kNeighborOffsets) {
-        const glm::ivec3 np = cpos + off;
-        if (isExpectedChunk(np) && !m_chunkBuffers.count(np)) return false;
-    }
-    return true;
-}
-
-void WorldRenderer::streamNextBatch() {
-    ZoneScoped;
-    // Cap per-frame work so the main thread stays responsive.
-    constexpr int kMaxNewPerFrame = 8;
-    constexpr size_t kMaxMeshesPerFrame = 16;
-    int newlyCreated = 0;
-
-    while (m_loadQueueCursor < m_loadQueue.size() && newlyCreated < kMaxNewPerFrame) {
-        const glm::ivec3 cpos = m_loadQueue[m_loadQueueCursor++];
-        if (m_chunkBuffers.count(cpos)) continue;            // already loaded
-
-        if (!m_world->getChunk(cpos)) {
-            ZoneScopedN("Generate chunk");
-            m_world->generateChunkData(m_world->createChunk(cpos));
-        }
-        m_chunkBuffers.emplace(cpos, ChunkBuffers{});
-        ++newlyCreated;
-
-        // Loaded neighbours treated this chunk as air on their shared border.
-        m_pendingMesh.insert(cpos);
-        for (const auto& off : kNeighborOffsets) {
-            const glm::ivec3 np = cpos + off;
-            if (m_chunkBuffers.count(np)) m_pendingMesh.insert(np);
-        }
-    }
-
-    // Mesh each chunk once all of its in-range neighbours exist, nearest first.
-    std::vector<glm::ivec3> ready;
-    for (const auto& cpos : m_pendingMesh) {
-        if (isReadyToMesh(cpos)) ready.push_back(cpos);
-    }
-    const size_t meshCount = std::min(ready.size(), kMaxMeshesPerFrame);
-    auto distSq = [&](const glm::ivec3& p) {
-        const int dx = p.x - m_lastStreamCenter.x;
-        const int dz = p.z - m_lastStreamCenter.z;
-        return dx * dx + dz * dz;
-    };
-    std::partial_sort(ready.begin(), ready.begin() + meshCount, ready.end(),
-                      [&](const glm::ivec3& a, const glm::ivec3& b) { return distSq(a) < distSq(b); });
-    for (size_t i = 0; i < meshCount; ++i) {
-        uploadChunk(ready[i]);
-        m_pendingMesh.erase(ready[i]);
-    }
-
-    // Mark the streaming pass complete once the queue is drained and every chunk is meshed.
-    if (m_loadQueueCursor >= m_loadQueue.size() && m_pendingMesh.empty()) {
-        m_streamingInProgress = false;
-        m_loadQueue.clear();
-        m_loadQueue.shrink_to_fit();
-        m_loadQueueCursor = 0;
-    }
-}
-
 void WorldRenderer::updateStreaming(const glm::vec3& cameraPos, int renderDistance) {
     ZoneScoped;
-    if (!m_world) return;
+    const glm::vec3 voxelPos = cameraPos / VOXEL_SIZE;
+    m_cameraXZ = glm::vec2(voxelPos.x, voxelPos.z);
 
-    // Streaming is XZ-only; drop the Y component from the camera's chunk coord.
-    glm::ivec3 center = Chunk::worldToChunkCoord(cameraPos / VOXEL_SIZE);
-    center.y = 0;
-    const int loadRadius   = renderDistance;
-    const int unloadRadius = renderDistance + 1;
-
-    // Rebuild the nearest-first load queue whenever the centre or radius changes.
-    if (center != m_lastStreamCenter || loadRadius != m_loadRadius) {
-        rebuildLoadQueue(center, loadRadius);
-    } else if (!m_streamingInProgress) {
-        // Fully streamed around this centre; nothing to do.
-        return;
+    bool changed = false;
+    const glm::ivec3 chunk = worldToChunkCoord(voxelPos);
+    if (glm::ivec2(chunk.x, chunk.z) != m_lastCenter || renderDistance != m_lastDistance) {
+        m_lastCenter = glm::ivec2(chunk.x, chunk.z);
+        m_lastDistance = renderDistance;
+        selectColumns(renderDistance);
+        scheduleBuilds();
+        changed = true;
     }
 
-    unloadFarChunks(center, unloadRadius * unloadRadius);
-    streamNextBatch();
-    recomputeStats();
+    if (uploadResults() || changed) {
+        dropCoveredColumns();
+        recomputeStats();
+    }
 
-    TracyPlot("Loaded chunks", static_cast<int64_t>(m_chunkBuffers.size()));
-    TracyPlot("Load queue remaining", static_cast<int64_t>(m_loadQueue.size() - m_loadQueueCursor));
-    TracyPlot("Pending meshes", static_cast<int64_t>(m_pendingMesh.size()));
+    TracyPlot("Loaded columns", static_cast<int64_t>(m_columns.size()));
+    TracyPlot("Pending columns", static_cast<int64_t>(m_scheduled.size()));
+    TracyPlot("Mesh memory (MB)", static_cast<double>(m_arena.usedBytes()) / (1024.0 * 1024.0));
 }
 
 void WorldRenderer::recomputeStats() {
-    m_totalVertices = 0;
-    m_totalTriangles = 0;
-    for (const auto& kv : m_chunkBuffers) {
-        m_totalTriangles += kv.second.indexCount / 3;
-        m_totalVertices  += kv.second.vertexCount;
-    }
+    m_totalQuads = 0;
+    for (const auto& kv : m_columns) m_totalQuads += kv.second.solidQuads + kv.second.waterQuads;
 }
 
 void WorldRenderer::extractFrustumPlanes(const glm::mat4& vp) {
@@ -338,7 +339,7 @@ void WorldRenderer::updateUniforms(uint32_t frameIndex, const Camera& camera) {
     ubo.proj  = camera.getProjectionMatrix();
     ubo.proj[1][1] *= -1;  // Vulkan Y-flip
 
-    // Un-flipped MVP puts the planes in voxel space, matching the chunk AABBs.
+    // Un-flipped MVP puts the planes in voxel space, matching the column AABBs.
     extractFrustumPlanes(camera.getProjectionMatrix() * ubo.view * ubo.model);
 
     m_uniformBuffers[frameIndex]->copyData(&ubo, sizeof(ubo));
@@ -358,66 +359,60 @@ static bool aabbInFrustum(const WorldRenderer::Plane planes[6],
     return true;
 }
 
+void WorldRenderer::drawPass(VkCommandBuffer cmd, const Pipeline& pipeline, uint32_t frameIndex, bool water) {
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getPipeline());
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.getLayout(), 0, 1,
+                            &m_descriptorSets[frameIndex], 0, nullptr);
+    vkCmdBindIndexBuffer(cmd, m_quadIndices->getBuffer(), 0, VK_INDEX_TYPE_UINT32);
+
+    uint32_t boundBlock = UINT32_MAX;
+    for (const auto& [key, col] : m_columns) {
+        uint32_t quads = water ? col.waterQuads : col.solidQuads;
+        if (quads == 0) continue;
+
+        const float size = static_cast<float>(key.sizeVoxels());
+        const glm::vec3 mn(static_cast<float>(key.x) * size, static_cast<float>(col.minY), static_cast<float>(key.z) * size);
+        const glm::vec3 mx(mn.x + size, static_cast<float>(col.maxY), mn.z + size);
+        if (!aabbInFrustum(m_frustumPlanes, mn, mx)) continue;
+        if (!water) ++m_visibleColumns;
+
+        if (col.alloc.block != boundBlock) {
+            boundBlock = col.alloc.block;
+            const VkBuffer vb = m_arena.buffer(boundBlock);
+            const VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &vb, &offset);
+        }
+
+        const PushConstants pc{glm::vec4(mn.x, 0.0f, mn.z, static_cast<float>(key.cellSize()))};
+        vkCmdPushConstants(cmd, pipeline.getLayout(), VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
+
+        // The shared index pattern covers kQuadsPerDraw quads; larger meshes take several draws.
+        uint32_t firstVertex = col.alloc.offset + (water ? col.solidQuads * 4 : 0);
+        while (quads > 0) {
+            const uint32_t n = std::min(quads, kQuadsPerDraw);
+            vkCmdDrawIndexed(cmd, n * 6, 1, 0, static_cast<int32_t>(firstVertex), 0);
+            firstVertex += n * 4;
+            quads -= n;
+        }
+    }
+}
+
 void WorldRenderer::render(VkCommandBuffer commandBuffer, uint32_t frameIndex) {
     ZoneScoped;
-    if (!m_world) return;
 
     // Called after the frame fence wait, so frames older than MAX_FRAMES_IN_FLIGHT are done.
-    std::erase_if(m_retiredBuffers, [&](const auto& entry) {
-        return m_frameNumber >= entry.first + Renderer::MAX_FRAMES_IN_FLIGHT;
+    std::erase_if(m_retired, [&](const auto& entry) {
+        if (m_frameNumber < entry.first + Renderer::MAX_FRAMES_IN_FLIGHT) return false;
+        m_arena.free(entry.second);
+        return true;
     });
     ++m_frameNumber;
 
-    m_visibleChunks = 0;
-    const float cs = static_cast<float>(CHUNK_SIZE);
+    m_visibleColumns = 0;
+    drawPass(commandBuffer, m_pipeline, frameIndex, false);
+    drawPass(commandBuffer, m_waterPipeline, frameIndex, true);
 
-    // Pass 1: opaque chunks, depth-write enabled.
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_pipeline.getPipeline());
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_pipeline.getLayout(), 0, 1,
-                            &m_descriptorSets[frameIndex], 0, nullptr);
-
-    for (const auto& kv : m_chunkBuffers) {
-        const auto& cb = kv.second;
-        if (!cb.buffer || cb.indexCount == 0) continue;
-
-        const glm::ivec3& cp = kv.first;
-        glm::vec3 mn(cp.x * cs, cp.y * cs, cp.z * cs);
-        glm::vec3 mx = mn + glm::vec3(cs);
-        if (!aabbInFrustum(m_frustumPlanes, mn, mx)) continue;
-
-        VkBuffer vertexBuffers[] = {cb.buffer->getBuffer()};
-        VkDeviceSize offsets[] = {0};
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, cb.buffer->getBuffer(), cb.indexOffset, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(commandBuffer, cb.indexCount, 1, 0, 0, 0);
-        ++m_visibleChunks;
-    }
-
-    // Pass 2: water mesh, alpha blending, depth-write disabled.
-    vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_waterPipeline.getPipeline());
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            m_waterPipeline.getLayout(), 0, 1,
-                            &m_descriptorSets[frameIndex], 0, nullptr);
-
-    for (const auto& kv : m_chunkBuffers) {
-        const auto& cb = kv.second;
-        if (!cb.buffer || cb.waterIndexCount == 0) continue;
-
-        const glm::ivec3& cp = kv.first;
-        glm::vec3 mn(cp.x * cs, cp.y * cs, cp.z * cs);
-        glm::vec3 mx = mn + glm::vec3(cs);
-        if (!aabbInFrustum(m_frustumPlanes, mn, mx)) continue;
-
-        VkBuffer vertexBuffers[] = {cb.buffer->getBuffer()};
-        VkDeviceSize offsets[] = {cb.waterVertexOffset};
-        vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-        vkCmdBindIndexBuffer(commandBuffer, cb.buffer->getBuffer(), cb.waterIndexOffset, VK_INDEX_TYPE_UINT32);
-        vkCmdDrawIndexed(commandBuffer, cb.waterIndexCount, 1, 0, 0, 0);
-    }
-
-    TracyPlot("Visible chunks", static_cast<int64_t>(m_visibleChunks));
-    TracyPlot("Retired buffers", static_cast<int64_t>(m_retiredBuffers.size()));
+    TracyPlot("Visible columns", static_cast<int64_t>(m_visibleColumns));
 }
 
 bool WorldRenderer::createDescriptorSetLayout() {

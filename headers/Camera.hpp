@@ -35,6 +35,7 @@ public:
     void setAspectRatio(float aspectRatio) { m_aspectRatio = aspectRatio; }
     void setFOV(float fov) { m_fov = fov; }
     void setFarPlane(float farPlane) { m_farPlane = farPlane; }
+    void setPosition(const glm::vec3& position) { m_position = position; }
     void setMouseSensitivity(float sensitivity) { m_mouseSensitivity = sensitivity; }
     void setMovementSpeed(float speed) { m_movementSpeed = speed; }
 

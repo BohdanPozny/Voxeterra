@@ -23,7 +23,8 @@ public:
                              const std::string& fragShaderPath,
                              VkDescriptorSetLayout descriptorSetLayout = VK_NULL_HANDLE,
                              bool enableAlphaBlending = false,
-                             bool enableDepthWrite = true) noexcept;
+                             bool enableDepthWrite = true,
+                             VkPipelineCache pipelineCache = VK_NULL_HANDLE) noexcept;
 
     VkPipeline getPipeline() const noexcept { return m_pipeline; }
     VkPipelineLayout getLayout() const noexcept { return m_pipelineLayout; }

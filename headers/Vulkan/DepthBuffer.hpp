@@ -13,7 +13,7 @@ private:
     VkDevice m_deviceHandle = VK_NULL_HANDLE;
     VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
 
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    bool findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties, uint32_t& outIndex);
     VkFormat findDepthFormat();
 
 public:

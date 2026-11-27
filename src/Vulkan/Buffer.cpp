@@ -75,7 +75,16 @@ bool Buffer::init(Device& device,
     return true;
 }
 
+void* Buffer::map() {
+    if (!m_mapped) vkMapMemory(m_deviceHandle, m_memory, 0, VK_WHOLE_SIZE, 0, &m_mapped);
+    return m_mapped;
+}
+
 void Buffer::copyData(const void* data, size_t size, size_t offset) {
+    if (m_mapped) {
+        std::memcpy(static_cast<char*>(m_mapped) + offset, data, size);
+        return;
+    }
     void* mappedData;
     vkMapMemory(m_deviceHandle, m_memory, offset, size, 0, &mappedData);
     std::memcpy(mappedData, data, size);

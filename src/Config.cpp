@@ -36,6 +36,7 @@ bool Config::load() {
             if (graphics.contains("windowHeight")) m_windowHeight = graphics["windowHeight"];
             if (graphics.contains("fullscreen")) m_fullscreen = graphics["fullscreen"];
             if (graphics.contains("vsync")) m_vsync = graphics["vsync"];
+            if (graphics.contains("retina")) m_retina = graphics["retina"];
             if (graphics.contains("renderDistance")) m_renderDistance = graphics["renderDistance"];
             if (graphics.contains("fpsLimit")) setFpsLimit(graphics["fpsLimit"]);
             if (graphics.contains("fov")) m_fov = graphics["fov"];
@@ -90,6 +91,7 @@ bool Config::save() {
         j["graphics"]["windowHeight"] = m_windowHeight;
         j["graphics"]["fullscreen"] = m_fullscreen;
         j["graphics"]["vsync"] = m_vsync;
+        j["graphics"]["retina"] = m_retina;
         j["graphics"]["renderDistance"] = m_renderDistance;
         j["graphics"]["fpsLimit"] = m_fpsLimit;
         j["graphics"]["fov"] = m_fov;
