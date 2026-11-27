@@ -3,9 +3,11 @@
 #include "Vulkan/TextRenderer.hpp"
 #include "Vulkan/Device.hpp"
 #include "Vulkan/Buffer.hpp"
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 #include <fstream>
 #include <iostream>
-#include <cstring>
 
 TextRenderer::~TextRenderer() {
     cleanup();
@@ -39,77 +41,80 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     }
     
     // Rasterise printable ASCII glyphs (32..126).
-    float scale = stbtt_ScaleForPixelHeight(&font, static_cast<float>(fontSize));
-    
+    const float scale = stbtt_ScaleForPixelHeight(&font, static_cast<float>(fontSize));
+
     int ascent, descent, lineGap;
     stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
-    
-    // Single 512x512 atlas is plenty for the ASCII range.
-    const int atlasWidth = 512;
-    const int atlasHeight = 512;
-    std::vector<unsigned char> atlasData(atlasWidth * atlasHeight, 0);
-    
-    int penX = 0, penY = 0;
-    int rowHeight = 0;
-    
+    m_ascent = ascent * scale;
+    m_descent = descent * scale;
+
+    struct Glyph {
+        int c, width, height, x, y;
+        unsigned char* bitmap;
+    };
+    std::vector<Glyph> glyphs;
+
+    // Shelf packing; 2 px gutters keep linear filtering from bleeding between glyphs.
+    // The first slot is a 2x2 white block that untextured quads sample.
+    constexpr int kPad = 2;
+    constexpr int atlasWidth = 1024;
+    int penX = 2 + kPad, penY = 0;
+    int rowHeight = 2;
+
     for (int c = 32; c < 127; ++c) {
-        int width, height, xoff, yoff;
-        unsigned char* bitmap = stbtt_GetCodepointBitmap(&font, 0, scale, c, &width, &height, &xoff, &yoff);
-        
-        if (bitmap) {
-            // Move to a new row if the glyph overflows the current one.
-            if (penX + width >= atlasWidth) {
+        Glyph g{c, 0, 0, 0, 0, nullptr};
+        int xoff = 0, yoff = 0;
+        g.bitmap = stbtt_GetCodepointBitmap(&font, 0, scale, c, &g.width, &g.height, &xoff, &yoff);
+
+        int advance, leftBearing;
+        stbtt_GetCodepointHMetrics(&font, c, &advance, &leftBearing);
+
+        Character ch{};
+        ch.advance = advance * scale;
+        ch.bearing = glm::vec2(xoff, yoff);
+        ch.size = glm::vec2(g.width, g.height);
+
+        if (g.bitmap) {
+            if (penX + g.width > atlasWidth) {
                 penX = 0;
-                penY += rowHeight + 1;
+                penY += rowHeight + kPad;
                 rowHeight = 0;
             }
-            
-            // Blit glyph bitmap into the atlas.
-            for (int y = 0; y < height; ++y) {
-                for (int x = 0; x < width; ++x) {
-                    size_t atlasIdx = static_cast<size_t>((penY + y) * atlasWidth + (penX + x));
-                    if (atlasIdx < atlasData.size()) {
-                        atlasData[atlasIdx] = bitmap[y * width + x];
-                    }
-                }
-            }
-            
-            Character ch;
-            ch.size = glm::vec2(width, height);
-            ch.bearing = glm::vec2(xoff, yoff);
-            
-            int advance, leftBearing;
-            stbtt_GetCodepointHMetrics(&font, c, &advance, &leftBearing);
-            ch.advance = advance * scale;
-            
-            // UVs for the four corners.
-            ch.texCoords[0] = glm::vec2(float(penX) / atlasWidth, float(penY) / atlasHeight);  // top-left
-            ch.texCoords[1] = glm::vec2(float(penX + width) / atlasWidth, float(penY) / atlasHeight);  // top-right
-            ch.texCoords[2] = glm::vec2(float(penX + width) / atlasWidth, float(penY + height) / atlasHeight);  // bottom-right
-            ch.texCoords[3] = glm::vec2(float(penX) / atlasWidth, float(penY + height) / atlasHeight);  // bottom-left
-            
-            m_characters[c] = ch;
-            
-            penX += width + 1;
-            rowHeight = std::max(rowHeight, height);
-            
-            stbtt_FreeBitmap(bitmap, nullptr);
+            g.x = penX;
+            g.y = penY;
+            penX += g.width + kPad;
+            rowHeight = std::max(rowHeight, g.height);
+            glyphs.push_back(g);
         } else {
-            // Glyphs without a bitmap (e.g. space) still need an advance value.
-            Character ch{};
-            ch.size = glm::vec2(0.0f);
-            ch.bearing = glm::vec2(0.0f);
-            int advance = 0, leftBearing = 0;
-            stbtt_GetCodepointHMetrics(&font, c, &advance, &leftBearing);
-            ch.advance = advance * scale;
-            ch.texCoords[0] = ch.texCoords[1] = ch.texCoords[2] = ch.texCoords[3] = glm::vec2(0.0f);
-            m_characters[c] = ch;
+            ch.size = glm::vec2(0.0f);  // e.g. space: advance only
         }
+        m_characters[static_cast<char>(c)] = ch;
+        if (c == 'H') m_capHeight = static_cast<float>(-yoff);
     }
-    
+
+    int atlasHeight = 1;
+    while (atlasHeight < penY + rowHeight) atlasHeight *= 2;
+
+    std::vector<unsigned char> atlasData(static_cast<size_t>(atlasWidth) * atlasHeight, 0);
+    for (int y = 0; y < 2; ++y)
+        for (int x = 0; x < 2; ++x)
+            atlasData[static_cast<size_t>(y) * atlasWidth + x] = 255;
+    m_solidUV = glm::vec2(1.0f / atlasWidth, 1.0f / atlasHeight);
+
+    for (const Glyph& g : glyphs) {
+        for (int y = 0; y < g.height; ++y) {
+            std::memcpy(&atlasData[static_cast<size_t>(g.y + y) * atlasWidth + g.x],
+                        &g.bitmap[static_cast<size_t>(y) * g.width], static_cast<size_t>(g.width));
+        }
+        Character& ch = m_characters[static_cast<char>(g.c)];
+        ch.uvMin = glm::vec2(float(g.x) / atlasWidth, float(g.y) / atlasHeight);
+        ch.uvMax = glm::vec2(float(g.x + g.width) / atlasWidth, float(g.y + g.height) / atlasHeight);
+        stbtt_FreeBitmap(g.bitmap, nullptr);
+    }
+
     std::cout << "[TextRenderer] Loaded font: " << fontPath << " (" << m_characters.size() << " chars)" << std::endl;
     std::cout << "[TextRenderer] Created font atlas: " << atlasWidth << "x" << atlasHeight << std::endl;
-    
+
     Buffer staging;
     if (!staging.init(device, atlasData.size(), VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT)) {
@@ -121,8 +126,8 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     VkImageCreateInfo imageInfo{};
     imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     imageInfo.imageType = VK_IMAGE_TYPE_2D;
-    imageInfo.extent.width = atlasWidth;
-    imageInfo.extent.height = atlasHeight;
+    imageInfo.extent.width = static_cast<uint32_t>(atlasWidth);
+    imageInfo.extent.height = static_cast<uint32_t>(atlasHeight);
     imageInfo.extent.depth = 1;
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
@@ -172,7 +177,7 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     
     vkBindImageMemory(m_device, m_fontTexture, m_fontMemory, 0);
 
-    if (!uploadAtlas(staging.getBuffer(), atlasWidth, atlasHeight)) {
+    if (!uploadAtlas(staging.getBuffer(), static_cast<uint32_t>(atlasWidth), static_cast<uint32_t>(atlasHeight))) {
         std::cerr << "[TextRenderer] Failed to upload font atlas" << std::endl;
         return false;
     }
@@ -208,7 +213,7 @@ bool TextRenderer::init(Device& device, const std::string& fontPath, int fontSiz
     samplerInfo.unnormalizedCoordinates = VK_FALSE;
     samplerInfo.compareEnable = VK_FALSE;
     samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
     
     if (vkCreateSampler(m_device, &samplerInfo, nullptr, &m_fontSampler) != VK_SUCCESS) {
         std::cerr << "[TextRenderer] Failed to create font sampler" << std::endl;
@@ -306,35 +311,32 @@ void TextRenderer::cleanup() {
     m_characters.clear();
 }
 
-void TextRenderer::renderText(const std::string& text, glm::vec2 position, float scale, 
-                               glm::vec4 color, std::vector<UIVertex>& outVertices) {
-    float x = position.x;
-    float y = position.y;
-    
+void TextRenderer::renderText(const std::string& text, glm::vec2 baseline, float scale,
+                              glm::vec4 color, glm::vec2 pixelToNdc,
+                              std::vector<UIVertex>& outVertices) const {
+    // Snap the pen to whole pixels so every string samples the atlas the same way.
+    float x = std::round(baseline.x);
+    const float y = std::round(baseline.y);
+
     for (char c : text) {
-        if (m_characters.find(c) == m_characters.end()) continue;
-        
-        Character& ch = m_characters[c];
-        
-        float xpos = x + ch.bearing.x * scale;
-        float ypos = y + ch.bearing.y * scale;
-        float w = ch.size.x * scale;
-        float h = ch.size.y * scale;
-        
-        // Emit a quad as two CCW triangles (atlas UVs: tl, tr, br, bl).
-        const glm::vec2 uv0 = ch.texCoords[0];
-        const glm::vec2 uv1 = ch.texCoords[1];
-        const glm::vec2 uv2 = ch.texCoords[2];
-        const glm::vec2 uv3 = ch.texCoords[3];
+        auto it = m_characters.find(c);
+        if (it == m_characters.end()) continue;
+        const Character& ch = it->second;
 
-        outVertices.push_back({glm::vec2(xpos,     ypos),     color, uv0});
-        outVertices.push_back({glm::vec2(xpos + w, ypos),     color, uv1});
-        outVertices.push_back({glm::vec2(xpos + w, ypos + h), color, uv2});
+        if (ch.size.x > 0.0f) {
+            const glm::vec2 p0 = (glm::vec2(x, y) + ch.bearing * scale) * pixelToNdc - 1.0f;
+            const glm::vec2 p1 = p0 + ch.size * scale * pixelToNdc;
+            const glm::vec2 uv0 = ch.uvMin;
+            const glm::vec2 uv1 = ch.uvMax;
 
-        outVertices.push_back({glm::vec2(xpos,     ypos),     color, uv0});
-        outVertices.push_back({glm::vec2(xpos + w, ypos + h), color, uv2});
-        outVertices.push_back({glm::vec2(xpos,     ypos + h), color, uv3});
-        
+            outVertices.push_back({p0,                    color, uv0});
+            outVertices.push_back({glm::vec2(p1.x, p0.y), color, glm::vec2(uv1.x, uv0.y)});
+            outVertices.push_back({p1,                    color, uv1});
+
+            outVertices.push_back({p0,                    color, uv0});
+            outVertices.push_back({p1,                    color, uv1});
+            outVertices.push_back({glm::vec2(p0.x, p1.y), color, glm::vec2(uv0.x, uv1.y)});
+        }
         x += ch.advance * scale;
     }
 }

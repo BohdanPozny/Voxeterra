@@ -9,6 +9,7 @@ private:
     std::map<GameState, std::unique_ptr<IGameState>> m_states;
     GameState m_currentState;
     GameState m_nextState;
+    GameState m_previousState;
     bool m_shouldChangeState = false;
     bool m_firstUpdate = true;
 
@@ -24,6 +25,7 @@ public:
     void handleInput();
     
     GameState getCurrentState() const { return m_currentState; }
+    GameState getPreviousState() const { return m_previousState; }
     IGameState* getState(GameState state) const {
         auto it = m_states.find(state);
         return (it != m_states.end()) ? it->second.get() : nullptr;

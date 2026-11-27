@@ -19,12 +19,12 @@ private:
     float m_farPlane;
 
     float m_mouseSensitivity = 0.1f;
-    float m_movementSpeed = 40.0f;
+    float m_movementSpeed = 10.0f;
 
     void updateCameraVectors();
 
 public:
-    Camera(glm::vec3 position = glm::vec3(40.0f, 20.0f, 60.0f),
+    Camera(glm::vec3 position = glm::vec3(4.0f, 18.0f, 6.0f),
            glm::vec3 up = glm::vec3(0.0f, 1.0f, 0.0f),
            float yaw = -90.0f,
            float pitch = -20.0f);

@@ -278,13 +278,13 @@ void WorldRenderer::updateStreaming(const glm::vec3& cameraPos, int renderDistan
     if (!m_world) return;
 
     // Streaming is XZ-only; drop the Y component from the camera's chunk coord.
-    glm::ivec3 center = Chunk::worldToChunkCoord(cameraPos);
+    glm::ivec3 center = Chunk::worldToChunkCoord(cameraPos / VOXEL_SIZE);
     center.y = 0;
     const int loadRadius   = renderDistance;
     const int unloadRadius = renderDistance + 1;
 
-    // Rebuild the nearest-first load queue whenever the centre moves.
-    if (center != m_lastStreamCenter) {
+    // Rebuild the nearest-first load queue whenever the centre or radius changes.
+    if (center != m_lastStreamCenter || loadRadius != m_loadRadius) {
         rebuildLoadQueue(center, loadRadius);
     } else if (!m_streamingInProgress) {
         // Fully streamed around this centre; nothing to do.
@@ -333,14 +333,13 @@ void WorldRenderer::extractFrustumPlanes(const glm::mat4& vp) {
 void WorldRenderer::updateUniforms(uint32_t frameIndex, const Camera& camera) {
     ZoneScoped;
     UniformBufferObject ubo{};
-    ubo.model = glm::mat4(1.0f);
+    ubo.model = glm::scale(glm::mat4(1.0f), glm::vec3(VOXEL_SIZE));
     ubo.view  = camera.getViewMatrix();
     ubo.proj  = camera.getProjectionMatrix();
     ubo.proj[1][1] *= -1;  // Vulkan Y-flip
 
-    // Frustum is extracted from the un-flipped VP so planes live in world space
-    // (the Y-flip only matters in clip space).
-    extractFrustumPlanes(camera.getProjectionMatrix() * camera.getViewMatrix());
+    // Un-flipped MVP puts the planes in voxel space, matching the chunk AABBs.
+    extractFrustumPlanes(camera.getProjectionMatrix() * ubo.view * ubo.model);
 
     m_uniformBuffers[frameIndex]->copyData(&ubo, sizeof(ubo));
 }

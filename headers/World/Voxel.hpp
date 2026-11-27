@@ -6,6 +6,9 @@
 // One byte per voxel keeps memory footprint low.
 using VoxelType = uint8_t;
 
+// World units are metres; voxel grid coordinates are scaled by this on render.
+constexpr float VOXEL_SIZE = 0.1f;
+
 // Voxel type identifiers.
 namespace VoxelTypes {
     constexpr VoxelType AIR = 0;

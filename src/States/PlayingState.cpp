@@ -1,9 +1,9 @@
 #include "States/PlayingState.hpp"
+#include "World/Chunk.hpp"
 #include <GLFW/glfw3.h>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
-#include <cmath>
 
 PlayingState::PlayingState(Engine* engine) 
     : m_engine(engine) {
@@ -87,6 +87,8 @@ void PlayingState::onExit() {
 void PlayingState::update(float deltaTime) {
     if (!m_engine) return;
 
+    updateCamera(deltaTime);
+
     // Stream chunks in/out around the camera.
     m_engine->getWorldRenderer().updateStreaming(
         m_engine->getCamera().getPosition(),
@@ -138,7 +140,7 @@ void PlayingState::update(float deltaTime) {
 
         if (m_debugPos) {
             std::ostringstream oss;
-            oss << "XYZ: " << std::fixed << std::setprecision(2)
+            oss << "XYZ (m): " << std::fixed << std::setprecision(2)
                 << pos.x << "  " << pos.y << "  " << pos.z;
             m_debugPos->setText(oss.str());
         }
@@ -149,10 +151,9 @@ void PlayingState::update(float deltaTime) {
             m_debugDir->setText(oss.str());
         }
         if (m_debugMisc) {
-            int cx = static_cast<int>(std::floor(pos.x / 64.0f));
-            int cz = static_cast<int>(std::floor(pos.z / 64.0f));
+            const glm::ivec3 chunk = Chunk::worldToChunkCoord(pos / VOXEL_SIZE);
             std::ostringstream oss;
-            oss << "Chunk: " << cx << ", " << cz
+            oss << "Chunk: " << chunk.x << ", " << chunk.z
                 << "  FOV: " << m_engine->getConfig().getFOV();
             m_debugMisc->setText(oss.str());
         }
@@ -180,7 +181,26 @@ void PlayingState::render() {
 }
 
 void PlayingState::handleInput() {
-    // Input is handled by Engine::processInput.
+    // Camera input needs deltaTime, so it is applied in update().
+}
+
+void PlayingState::updateCamera(float deltaTime) {
+    auto& input = m_engine->getInput();
+    const auto& config = m_engine->getConfig();
+    auto& camera = m_engine->getCamera();
+
+    // Camera::processKeyboard direction enum: 0=fwd 1=back 2=left 3=right 4=up 5=down.
+    for (std::size_t i = 0; i < Config::KEY_ACTION_COUNT; ++i) {
+        if (input.isKeyDown(config.getKey(static_cast<KeyAction>(i)))) {
+            camera.processKeyboard(static_cast<int>(i), deltaTime);
+        }
+    }
+
+    // Invert Y so pushing the mouse down lowers pitch.
+    const glm::vec2 mouseDelta = input.getMouseDelta();
+    if (mouseDelta.x != 0.0f || mouseDelta.y != 0.0f) {
+        camera.processMouseMovement(mouseDelta.x, -mouseDelta.y);
+    }
 }
 
 void PlayingState::pause() {

@@ -33,6 +33,7 @@ private:
 
     bool m_isFrameStarted = false;
     bool m_vsync = true;
+    bool m_vsyncChanged = false;
 
     TracyVkCtx m_tracyCtx = nullptr;
 
@@ -55,6 +56,13 @@ public:
     void endFrame(Window& window, uint32_t imageIndex);
 
     void waitIdle();
+
+    // Applied by recreating the swapchain at the start of the next frame.
+    void setVsync(bool vsync) {
+        if (vsync == m_vsync) return;
+        m_vsync = vsync;
+        m_vsyncChanged = true;
+    }
 
     // Accessors
     Device& getDevice() { return m_device; }

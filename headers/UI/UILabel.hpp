@@ -9,6 +9,7 @@ private:
     std::string m_text;
     float m_fontSize;
     glm::vec4 m_textColor;
+    bool m_centered = false;
 
 public:
     UILabel(const glm::vec2& position, const glm::vec2& size, 
@@ -27,4 +28,6 @@ public:
     std::string getText() const { return m_text; }
     void setTextColor(const glm::vec4& color) { m_textColor = color; }
     glm::vec4 getTextColor() const { return m_textColor; }
+    void setCentered(bool centered) { m_centered = centered; }
+    bool isCentered() const { return m_centered; }
 };

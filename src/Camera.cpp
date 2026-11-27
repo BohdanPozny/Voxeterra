@@ -7,8 +7,8 @@ Camera::Camera(glm::vec3 position, glm::vec3 up, float yaw, float pitch)
     , m_pitch(pitch)
     , m_fov(45.0f)
     , m_aspectRatio(16.0f / 9.0f)
-    , m_nearPlane(0.1f)
-    , m_farPlane(4000.0f)
+    , m_nearPlane(0.02f)
+    , m_farPlane(500.0f)
 {
     updateCameraVectors();
 }

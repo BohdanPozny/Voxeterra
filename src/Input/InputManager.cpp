@@ -1,7 +1,19 @@
 #include "Input/InputManager.hpp"
 
+namespace {
+InputManager* g_keyListener = nullptr;  // GLFW callbacks carry no context besides the window
+}
+
+void InputManager::keyCallback(GLFWwindow*, int key, int, int action, int) {
+    if (g_keyListener && action == GLFW_PRESS && key != GLFW_KEY_UNKNOWN) {
+        g_keyListener->m_pendingKey = key;
+    }
+}
+
 void InputManager::init(GLFWwindow* window) {
     m_window = window;
+    g_keyListener = this;
+    glfwSetKeyCallback(window, keyCallback);
 
     // Seed the mouse position to avoid a large delta on the first frame.
     double x, y;
@@ -15,6 +27,8 @@ void InputManager::beginFrame() {
     // Snapshot previous state so edge detection works.
     m_keysPrevious = m_keysCurrent;
     m_mousePrevious = m_mouseCurrent;
+    m_lastKeyPressed = m_pendingKey;
+    m_pendingKey = GLFW_KEY_UNKNOWN;
 
     // Only poll keys that callers have shown interest in.
     for (auto& [key, _] : m_keysCurrent) {

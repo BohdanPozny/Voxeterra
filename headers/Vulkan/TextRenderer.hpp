@@ -17,7 +17,8 @@ public:
         glm::vec2 size;          // glyph size in pixels
         glm::vec2 bearing;       // offset from the pen position
         float     advance;       // horizontal advance to next glyph
-        glm::vec2 texCoords[4];  // atlas UVs (tl, tr, br, bl)
+        glm::vec2 uvMin;         // atlas UV of the top-left corner
+        glm::vec2 uvMax;         // atlas UV of the bottom-right corner
     };
 
 private:
@@ -34,6 +35,10 @@ private:
     VkSampler m_fontSampler = VK_NULL_HANDLE;
     
     int m_fontSize = 16;
+    float m_ascent = 0.0f;      // pixels above the baseline at m_fontSize
+    float m_descent = 0.0f;     // pixels below the baseline (negative)
+    float m_capHeight = 0.0f;   // height of 'H', used for vertical centring
+    glm::vec2 m_solidUV{0.0f};  // centre of the white block reserved in the atlas
 
 public:
     TextRenderer() = default;
@@ -53,14 +58,17 @@ public:
         glm::vec2 texCoord;
     };
     
-    // Append text quads to outVertices; returns nothing.
-    void renderText(const std::string& text, glm::vec2 position, float scale,
-                    glm::vec4 color, std::vector<UIVertex>& outVertices);
+    // Append text quads to outVertices. baseline is in pixels; pixelToNdc maps a
+    // pixel length to NDC per axis so glyphs keep their aspect ratio.
+    void renderText(const std::string& text, glm::vec2 baseline, float scale,
+                    glm::vec4 color, glm::vec2 pixelToNdc, std::vector<UIVertex>& outVertices) const;
 
-    // Text width using renderText units (NDC).
+    // Text advance width in pixels.
     float measureTextWidth(const std::string& text, float scale) const;
 
-    int getFontSize() const { return m_fontSize; }
+    float getLineHeight() const { return m_ascent - m_descent; }
+    float getCapHeight() const { return m_capHeight; }
+    glm::vec2 getSolidUV() const { return m_solidUV; }
     
 private:
     bool uploadAtlas(VkBuffer staging, uint32_t width, uint32_t height);

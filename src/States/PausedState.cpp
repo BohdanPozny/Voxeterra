@@ -22,9 +22,10 @@ void PausedState::createUI() {
         32,
         glm::vec4(1.0f, 1.0f, 1.0f, 1.0f)
     );
+    title->setCentered(true);
     m_menuPanel->addChild(std::move(title));
 
-    // Button factory keeps the three buttons visually consistent.
+    // Button factory keeps the buttons visually consistent.
     auto makeButton = [](float y, const std::string& text,
                          const glm::vec4& normal, const glm::vec4& hover, const glm::vec4& pressed) {
         return std::make_unique<UIButton>(
@@ -45,7 +46,17 @@ void PausedState::createUI() {
     m_resumeButton = resumeBtn.get();
     m_menuPanel->addChild(std::move(resumeBtn));
 
-    auto mainMenuBtn = makeButton(0.55f, "Main Menu",
+    auto settingsBtn = makeButton(0.52f, "Settings",
+        glm::vec4(0.25f, 0.35f, 0.70f, 1.0f),
+        glm::vec4(0.35f, 0.47f, 0.90f, 1.0f),
+        glm::vec4(0.15f, 0.25f, 0.50f, 1.0f));
+    settingsBtn->setOnClick([this]() {
+        m_nextState = GameState::SETTINGS;
+        m_shouldChangeState = true;
+    });
+    m_menuPanel->addChild(std::move(settingsBtn));
+
+    auto mainMenuBtn = makeButton(0.64f, "Main Menu",
         glm::vec4(0.70f, 0.25f, 0.25f, 1.0f),
         glm::vec4(0.90f, 0.35f, 0.35f, 1.0f),
         glm::vec4(0.50f, 0.15f, 0.15f, 1.0f));

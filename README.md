@@ -6,10 +6,11 @@ Linux, Windows, and macOS (via MoltenVK).
 ## Features
 
 - Vulkan 1.2 renderer with separate 3D world and 2D UI pipelines
-- Chunked world with binary greedy meshing
+- Chunked world with binary greedy meshing; one voxel is 0.1 m
 - Streaming chunk loader around the camera
 - TTF font atlas + text rendering
-- Simple state machine (main menu, playing, paused)
+- Simple state machine (main menu, playing, paused, settings)
+- Settings screen: view distance, FPS limit, VSync, key bindings
 - JSON-backed user configuration
 
 ## Dependencies
@@ -76,8 +77,8 @@ Voxeterra/
 │   ├── Vulkan/       # Vulkan wrappers (Instance, Device, Swapchain, ...)
 │   ├── World/        # Voxel, Chunk, World, WorldRenderer
 │   ├── UI/           # UIElement, UIPanel, UIButton, UILabel
-│   ├── States/       # MainMenu / Playing / Paused
-│   ├── Input/        # InputManager
+│   ├── States/       # MainMenu / Playing / Paused / Settings
+│   ├── Input/        # InputManager, key names
 │   └── utils/        # BitUtils (portable ctz)
 ├── src/              # Implementation mirroring headers/
 ├── shaders/          # GLSL sources (compiled to SPIR-V at build time)
@@ -87,12 +88,27 @@ Voxeterra/
 └── CMakeLists.txt
 ```
 
+## Controls
+
+Movement defaults to W/A/S/D, Space (up) and Left Shift (down); the mouse
+looks around. Esc opens the pause menu, F3 toggles the debug overlay.
+
 ## Configuration
 
 `config.json` is loaded on startup from the executable's directory. If it is
-missing, a file with default values is written there. `renderDistance` is
-clamped to 2..16 chunks (each chunk is 64³ blocks). Debug builds enable
-`VK_LAYER_KHRONOS_validation` when it is installed.
+missing, a file with default values is written there. The Settings screen
+(main menu or pause menu) edits it and applies changes immediately:
+
+- **View distance**: 2..16 chunks; a chunk is 64³ voxels, i.e. 6.4 m.
+- **FPS limit**: Unlimited or 30..240 (`fpsLimit`, 0 = unlimited).
+- **VSync**: FIFO when on, mailbox/immediate when off.
+- **Keys**: click a binding, then press a key (Esc cancels). Binding a key
+  that is already used swaps the two actions. Stored as GLFW key codes in
+  `controls.keys`.
+
+World units are metres: camera position, `movementSpeed` (m/s) and terrain
+are expressed in metres, and the voxel grid is scaled by 0.1 when rendered.
+Debug builds enable `VK_LAYER_KHRONOS_validation` when it is installed.
 
 On a fresh clone `config.json` does not exist yet; CMake copies
 `config.json.example` instead.

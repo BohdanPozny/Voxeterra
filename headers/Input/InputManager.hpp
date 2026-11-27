@@ -20,13 +20,15 @@ public:
     // Bind to an existing GLFW window (no ownership).
     void init(GLFWwindow* window);
 
-    // Must be called at the top of every frame, before glfwPollEvents().
+    // Must be called every frame, right after glfwPollEvents().
     void beginFrame();
 
     // --- Keyboard ---
     bool isKeyDown(int key) const;
     bool isKeyPressed(int key) const;
     bool isKeyReleased(int key) const;
+    // Any key that went down this frame (GLFW_KEY_UNKNOWN if none); used for rebinding.
+    int getLastKeyPressed() const { return m_lastKeyPressed; }
 
     // --- Mouse buttons ---
     bool isMouseButtonDown(int button) const;
@@ -59,4 +61,8 @@ private:
     bool m_firstMouse = true;
 
     bool m_cursorEnabled = true;
+
+    int m_pendingKey = GLFW_KEY_UNKNOWN;
+    int m_lastKeyPressed = GLFW_KEY_UNKNOWN;
+    static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods);
 };

@@ -2,11 +2,12 @@
 #include "States/MainMenuState.hpp"
 #include "States/PlayingState.hpp"
 #include "States/PausedState.hpp"
+#include "States/SettingsState.hpp"
 #include "UI/UIElement.hpp"
 #include "utils/Profiler.hpp"
 #include <iostream>
 #include <array>
-#include <cstring>
+#include <thread>
 #include <GLFW/glfw3.h>
 
 Engine::~Engine() noexcept {
@@ -32,6 +33,8 @@ bool Engine::init() {
         std::make_unique<PlayingState>(this));
     m_stateManager.registerState(GameState::PAUSED,
         std::make_unique<PausedState>(this));
+    m_stateManager.registerState(GameState::SETTINGS,
+        std::make_unique<SettingsState>(this));
 
     // Trigger onEnter() for the initial state (MAIN_MENU).
     m_stateManager.update(0.0f);
@@ -103,14 +106,9 @@ void Engine::mainLoop() {
         }
         m_stateManager.update(deltaTime);
 
-        // Only the gameplay state consumes camera input.
-        IGameState* current = m_stateManager.getState(m_stateManager.getCurrentState());
-        if (current && current->shouldRenderWorld()) {
-            processInput(deltaTime);
-        }
-
         drawFrame();
         m_stateManager.render();
+        limitFrameRate();
         FrameMark;
     }
 
@@ -155,7 +153,7 @@ void Engine::drawFrame() {
         UIElement* uiRoot = currentState->getUIRoot();
         if (uiRoot) {
             TracyVkZone(m_renderer.getTracyContext(), commandBuffer, "UI");
-            m_uiRenderer.renderUI(uiRoot, commandBuffer, frameIndex);
+            m_uiRenderer.renderUI(uiRoot, commandBuffer, frameIndex, ext);
         }
     }
 
@@ -170,21 +168,21 @@ void Engine::cleanup() {
 }
 
 
-void Engine::processInput(float deltaTime) {
-    // Camera::processKeyboard direction enum: 0=fwd 1=back 2=left 3=right 4=up 5=down.
-    if (m_input.isKeyDown(GLFW_KEY_W))          m_camera.processKeyboard(0, deltaTime);
-    if (m_input.isKeyDown(GLFW_KEY_S))          m_camera.processKeyboard(1, deltaTime);
-    if (m_input.isKeyDown(GLFW_KEY_A))          m_camera.processKeyboard(2, deltaTime);
-    if (m_input.isKeyDown(GLFW_KEY_D))          m_camera.processKeyboard(3, deltaTime);
-    if (m_input.isKeyDown(GLFW_KEY_SPACE))      m_camera.processKeyboard(4, deltaTime);
-    if (m_input.isKeyDown(GLFW_KEY_LEFT_SHIFT)) m_camera.processKeyboard(5, deltaTime);
+void Engine::limitFrameRate() {
+    using Clock = std::chrono::steady_clock;
+    const int limit = m_config.getFpsLimit();
+    if (limit <= 0) return;
 
-    // Invert Y so pushing the mouse down lowers pitch.
-    glm::vec2 mouseDelta = m_input.getMouseDelta();
-    if (mouseDelta.x != 0.0f || mouseDelta.y != 0.0f) {
-        m_camera.processMouseMovement(mouseDelta.x, -mouseDelta.y);
+    ZoneScopedN("FPS limit");
+    const auto period = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / limit));
+    m_nextFrameTime += period;
+    const auto now = Clock::now();
+    if (m_nextFrameTime <= now) {
+        // Behind schedule (or limit just enabled): restart pacing instead of bursting.
+        m_nextFrameTime = now;
+        return;
     }
-
-    // ESC is reserved for the active state (PlayingState opens the pause menu,
-    // PausedState resumes/exits) — do NOT close the window here.
+    // sleep_until overshoots by up to a scheduler tick, so spin through the last millisecond.
+    std::this_thread::sleep_until(m_nextFrameTime - std::chrono::milliseconds(1));
+    while (Clock::now() < m_nextFrameTime) std::this_thread::yield();
 }

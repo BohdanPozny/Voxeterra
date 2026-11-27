@@ -4,6 +4,7 @@
 #include "UI/UIPanel.hpp"
 #include "Vulkan/Device.hpp"
 #include "utils/Profiler.hpp"
+#include <algorithm>
 #include <iostream>
 #include <string>
 
@@ -23,14 +24,13 @@ bool UIRenderer::init(Device& device, VkRenderPass renderPass, VkExtent2D screen
         return false;
     }
 
-    // Larger atlas font size improves clarity when the text is scaled down.
+    // The atlas also holds the white texel that untextured quads sample.
     m_textRenderer = std::make_unique<TextRenderer>();
-    m_useTextRenderer = m_textRenderer->init(device, fontPath, fontSize);
-    if (!m_useTextRenderer) {
-        std::cerr << "[UIRenderer] TTF font failed, falling back to bitmap font" << std::endl;
+    if (!m_textRenderer->init(device, fontPath, fontSize)) {
+        std::cerr << "[UIRenderer] Failed to load font: " << fontPath << std::endl;
+        return false;
     }
 
-    // Descriptor set is required by the Pipeline2D layout even when the font is absent.
     if (!createFontDescriptorSet()) {
         std::cerr << "[UIRenderer] Failed to create font descriptor set" << std::endl;
         return false;
@@ -114,12 +114,11 @@ void UIRenderer::cleanup() {
 
 void UIRenderer::addQuad(const glm::vec2& pos, const glm::vec2& size, const glm::vec4& color) {
     // Convert normalised coords to NDC (-1..1) and emit a quad.
-    // UV = (0,0) tells the shader to skip the font texture lookup.
     const float x1 = pos.x * 2.0f - 1.0f;
     const float y1 = pos.y * 2.0f - 1.0f;
     const float x2 = (pos.x + size.x) * 2.0f - 1.0f;
     const float y2 = (pos.y + size.y) * 2.0f - 1.0f;
-    const glm::vec2 uv(0.0f, 0.0f);
+    const glm::vec2 uv = m_textRenderer->getSolidUV();
 
     m_vertices.push_back({glm::vec2(x1, y1), color, uv});
     m_vertices.push_back({glm::vec2(x2, y1), color, uv});
@@ -130,10 +129,12 @@ void UIRenderer::addQuad(const glm::vec2& pos, const glm::vec2& size, const glm:
     m_vertices.push_back({glm::vec2(x1, y2), color, uv});
 }
 
-void UIRenderer::renderUI(UIElement* rootElement, VkCommandBuffer commandBuffer, uint32_t frameIndex) {
+void UIRenderer::renderUI(UIElement* rootElement, VkCommandBuffer commandBuffer, uint32_t frameIndex,
+                          VkExtent2D extent) {
     ZoneScoped;
-    if (!rootElement) return;
-    
+    if (!rootElement || extent.width == 0 || extent.height == 0) return;
+
+    m_screenSize = glm::vec2(static_cast<float>(extent.width), static_cast<float>(extent.height));
     m_vertices.clear();
     collectUIElements(rootElement);
     if (m_vertices.empty()) return;
@@ -193,94 +194,27 @@ void UIRenderer::collectUIElements(UIElement* element) {
     }
 
     if (hasText) {
-        if (m_useTextRenderer && m_textRenderer) {
-            // Both the quad batch and TextRenderer emit vertices in NDC (-1..1).
-            const glm::vec2 pos  = element->getPosition();
-            const glm::vec2 size = element->getSize();
+        const glm::vec2 boxPos  = element->getPosition() * m_screenSize;
+        const glm::vec2 boxSize = element->getSize() * m_screenSize;
 
-            // Text height ~ 60% of the element's height expressed in NDC.
-            const float fontCellHeight = static_cast<float>(m_textRenderer->getFontSize());
-            const float targetHeightNDC = size.y * 2.0f * 0.6f;
-            const float scale = targetHeightNDC / fontCellHeight;
-            const float textWidthNDC = m_textRenderer->measureTextWidth(text, scale);
-
-            // Buttons centre the text; labels use a small left padding.
-            float textX;
-            if (button) {
-                const float centerX = (pos.x + size.x * 0.5f) * 2.0f - 1.0f;
-                textX = centerX - textWidthNDC * 0.5f;
-            } else {
-                textX = (pos.x + size.x * 0.08f) * 2.0f - 1.0f;
-            }
-
-            // TextRenderer draws from the baseline near the top of the glyph box.
-            const float centerYNDC = (pos.y + size.y * 0.5f) * 2.0f - 1.0f;
-            const float textY = centerYNDC + targetHeightNDC * 0.5f;
-
-            m_textRenderer->renderText(text, glm::vec2(textX, textY), scale, textColor, m_vertices);
-        } else if (label) {
-            // Fallback: 5x7 pixel bitmap font built from quads.
-        float pixelSize = element->getSize().y / 9.0f;
-        float charWidth = pixelSize * 6.0f;
-
-        float startX = element->getPosition().x + pixelSize;
-        float startY = element->getPosition().y + pixelSize;
-        auto getPattern = [](char c) -> const int* {
-            static const int font_F[7] = {0b11110, 0b10000, 0b11100, 0b10000, 0b10000, 0b10000, 0b10000};
-            static const int font_P[7] = {0b11110, 0b10010, 0b10010, 0b11110, 0b10000, 0b10000, 0b10000};
-            static const int font_S[7] = {0b01110, 0b10000, 0b10000, 0b01110, 0b00010, 0b00010, 0b11100};
-            static const int font_0[7] = {0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110};
-            static const int font_1[7] = {0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110};
-            static const int font_2[7] = {0b01110, 0b10001, 0b00001, 0b00110, 0b01000, 0b10000, 0b11111};
-            static const int font_3[7] = {0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110};
-            static const int font_4[7] = {0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010};
-            static const int font_5[7] = {0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110};
-            static const int font_6[7] = {0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110};
-            static const int font_7[7] = {0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000};
-            static const int font_8[7] = {0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110};
-            static const int font_9[7] = {0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110};
-            static const int font_colon[7] = {0b00000, 0b01100, 0b01100, 0b00000, 0b01100, 0b01100, 0b00000};
-            static const int font_dot[7] = {0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100};
-            static const int font_space[7] = {0, 0, 0, 0, 0, 0, 0};
-            
-            switch(c) {
-                case 'F': return font_F;
-                case 'P': return font_P;
-                case 'S': return font_S;
-                case '0': return font_0;
-                case '1': return font_1;
-                case '2': return font_2;
-                case '3': return font_3;
-                case '4': return font_4;
-                case '5': return font_5;
-                case '6': return font_6;
-                case '7': return font_7;
-                case '8': return font_8;
-                case '9': return font_9;
-                case ':': return font_colon;
-                case '.': return font_dot;
-                case ' ': return font_space;
-                default: return font_space;
-            }
-        };
-        
-        auto drawChar = [&](char c, float x, float y) {
-            const int* pattern = getPattern(c);
-            for (int row = 0; row < 7; ++row) {
-                for (int col = 0; col < 5; ++col) {
-                    if (pattern[row] & (1 << (4 - col))) {
-                        addQuad(glm::vec2(x + col * pixelSize, y + row * pixelSize),
-                                glm::vec2(pixelSize * 0.9f, pixelSize * 0.9f),
-                                textColor);
-                    }
-                }
-            }
-        };
-
-            for (size_t i = 0; i < text.length(); ++i) {
-                drawChar(text[i], startX + i * charWidth, startY);
-            }
+        // Line height fills ~60% of the box, shrunk if the string would overflow it.
+        float scale = boxSize.y * 0.6f / m_textRenderer->getLineHeight();
+        const float padding = std::min(boxSize.y * 0.25f, boxSize.x * 0.08f);
+        float width = m_textRenderer->measureTextWidth(text, scale);
+        const float maxWidth = boxSize.x - 2.0f * padding;
+        if (width > maxWidth && width > 0.0f) {
+            scale *= maxWidth / width;
+            width = maxWidth;
         }
+
+        const bool centered = button || (label && label->isCentered());
+        const float textX = centered ? boxPos.x + (boxSize.x - width) * 0.5f
+                                     : boxPos.x + padding;
+        // Centre capital letters vertically; descenders hang below as usual.
+        const float baselineY = boxPos.y + (boxSize.y + m_textRenderer->getCapHeight() * scale) * 0.5f;
+
+        m_textRenderer->renderText(text, glm::vec2(textX, baselineY), scale, textColor,
+                                   2.0f / m_screenSize, m_vertices);
     }
 
     for (const auto& child : element->getChildren()) {

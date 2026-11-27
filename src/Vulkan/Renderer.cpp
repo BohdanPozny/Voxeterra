@@ -131,6 +131,11 @@ VkCommandBuffer Renderer::beginFrame(Window& window, uint32_t& outImageIndex) {
         m_frameSync.waitForFence(m_currentFrame);
     }
 
+    if (m_vsyncChanged) {
+        m_vsyncChanged = false;
+        recreateSwapchain(window);
+    }
+
     VkResult result = vkAcquireNextImageKHR(m_device.getLogicalDevice(),
                                             m_swapchain.getSwapchain(), UINT64_MAX,
                                             m_frameSync.getImageAvailable(m_currentFrame),

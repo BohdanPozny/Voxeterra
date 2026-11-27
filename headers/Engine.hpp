@@ -10,6 +10,7 @@
 #include "Input/InputManager.hpp"
 #include <vulkan/vulkan.h>
 #include <glm/glm.hpp>
+#include <chrono>
 #include <vector>
 #include <memory>
 
@@ -36,7 +37,9 @@ private:
     void cleanup();
 
     void drawFrame();
-    void processInput(float deltaTime);
+    void limitFrameRate();
+
+    std::chrono::steady_clock::time_point m_nextFrameTime{};
 
 public:
     Engine() = default;
@@ -55,4 +58,6 @@ public:
     UIRenderer& getUIRenderer() { return m_uiRenderer; }
     InputManager& getInput() { return m_input; }
     WorldRenderer& getWorldRenderer() { return m_worldRenderer; }
+    Renderer& getRenderer() { return m_renderer; }
+    StateManager& getStateManager() { return m_stateManager; }
 };

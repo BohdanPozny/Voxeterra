@@ -1,12 +1,17 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <string>
+
+enum class KeyAction { Forward, Back, Left, Right, Up, Down, Count };
 
 class Config {
 public:
     static constexpr int MIN_RENDER_DISTANCE = 2;
     static constexpr int MAX_RENDER_DISTANCE = 16;
+    static constexpr std::size_t KEY_ACTION_COUNT = static_cast<std::size_t>(KeyAction::Count);
 
 private:
     std::string m_configPath;
@@ -17,11 +22,13 @@ private:
     bool m_fullscreen = false;
     bool m_vsync = true;
     int m_renderDistance = 8;  // in chunks
+    int m_fpsLimit = 0;        // 0 = unlimited
     float m_fov = 70.0f;
     
     // Controls
     float m_mouseSensitivity = 0.1f;
-    float m_movementSpeed = 10.0f;
+    float m_movementSpeed = 10.0f;  // m/s
+    std::array<int, KEY_ACTION_COUNT> m_keys;  // GLFW key codes
     
     // Audio
     float m_masterVolume = 1.0f;
@@ -30,7 +37,7 @@ private:
 
     // UI
     std::string m_uiFont = "fonts/default.ttf";
-    int m_uiFontSize = 48;
+    int m_uiFontSize = 64;  // atlas raster height in pixels
 
 public:
     Config(const std::string& configPath = "config.json");
@@ -44,6 +51,7 @@ public:
     bool isFullscreen() const { return m_fullscreen; }
     bool isVsync() const { return m_vsync; }
     int getRenderDistance() const { return m_renderDistance; }
+    int getFpsLimit() const { return m_fpsLimit; }
     float getFOV() const { return m_fov; }
     
     void setWindowWidth(int width) { m_windowWidth = width; }
@@ -53,6 +61,7 @@ public:
     void setRenderDistance(int distance) {
         m_renderDistance = std::clamp(distance, MIN_RENDER_DISTANCE, MAX_RENDER_DISTANCE);
     }
+    void setFpsLimit(int limit) { m_fpsLimit = std::max(limit, 0); }
     void setFOV(float fov) { m_fov = fov; }
     
     // Controls getters/setters
@@ -61,6 +70,9 @@ public:
     
     void setMouseSensitivity(float sensitivity) { m_mouseSensitivity = sensitivity; }
     void setMovementSpeed(float speed) { m_movementSpeed = speed; }
+
+    int getKey(KeyAction action) const { return m_keys[static_cast<std::size_t>(action)]; }
+    void setKey(KeyAction action, int key) { m_keys[static_cast<std::size_t>(action)] = key; }
     
     // Audio getters/setters
     float getMasterVolume() const { return m_masterVolume; }

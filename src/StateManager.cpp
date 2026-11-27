@@ -5,6 +5,7 @@
 StateManager::StateManager() 
     : m_currentState(GameState::MAIN_MENU)
     , m_nextState(GameState::MAIN_MENU)
+    , m_previousState(GameState::MAIN_MENU)
     , m_shouldChangeState(false) {
 }
 
@@ -33,6 +34,7 @@ void StateManager::update(float deltaTime) {
             m_states[m_currentState]->onExit();
         }
         
+        m_previousState = m_currentState;
         m_currentState = m_nextState;
         
         if (m_states.find(m_currentState) != m_states.end()) {

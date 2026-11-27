@@ -20,9 +20,9 @@ private:
 
     std::unique_ptr<Pipeline2D>  m_pipeline2D;
     std::unique_ptr<TextRenderer> m_textRenderer;
-    bool m_useTextRenderer = false;
+    glm::vec2 m_screenSize{1.0f};  // swapchain extent of the frame being built
 
-    // position in NDC; texCoord (0,0) means "no texture" for the shader.
+    // Position in NDC; untextured quads sample the atlas's white texel.
     using UIVertex = TextRenderer::UIVertex;
     std::vector<UIVertex> m_vertices;
 
@@ -51,5 +51,6 @@ public:
     void cleanup();
 
     // Draw the entire widget tree rooted at rootElement.
-    void renderUI(UIElement* rootElement, VkCommandBuffer commandBuffer, uint32_t frameIndex);
+    void renderUI(UIElement* rootElement, VkCommandBuffer commandBuffer, uint32_t frameIndex,
+                  VkExtent2D extent);
 };

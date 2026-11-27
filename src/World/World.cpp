@@ -128,42 +128,50 @@ void World::generateChunkData(Chunk* chunk) {
 
     const glm::ivec3& cpos = chunk->getPosition();
 
-    // Terrain tunables.
-    constexpr int SEA_LEVEL    = 48;
-    constexpr int BASE_HEIGHT  = 36;
-    constexpr int HILL_AMP     = 28;     // small-scale hills
-    constexpr int MOUNT_AMP    = 140;    // gated mountains
-    constexpr int CONT_AMP     = 40;     // continental drift
+    // Terrain tunables in metres; the world column is 4 chunks (25.6 m) tall.
+    constexpr float SEA_LEVEL_M   = 6.0f;
+    constexpr float BASE_HEIGHT_M = 4.5f;
+    constexpr float HILL_AMP_M    = 3.0f;    // small-scale hills
+    constexpr float MOUNT_AMP_M   = 12.0f;   // gated mountains
+    constexpr float CONT_AMP_M    = 3.0f;    // continental drift
+    constexpr float BEACH_M       = 0.3f;
 
-    constexpr float CONT_SCALE  = 1.0f / 512.0f;  // very large features
-    constexpr float HILL_SCALE  = 1.0f / 96.0f;   // small hills
-    constexpr float MOUNT_SCALE = 1.0f / 256.0f;  // mountain ranges
+    constexpr float CONT_SCALE  = 1.0f / 200.0f;  // very large features
+    constexpr float HILL_SCALE  = 1.0f / 25.0f;   // small hills
+    constexpr float MOUNT_SCALE = 1.0f / 80.0f;   // mountain ranges
+
+    constexpr int SEA_LEVEL = static_cast<int>(SEA_LEVEL_M / VOXEL_SIZE);
+    constexpr int BEACH     = static_cast<int>(BEACH_M / VOXEL_SIZE);
+    constexpr int DIRT_DEPTH = 6;
 
     int chunkMinY = cpos.y * CHUNK_SIZE;
 
     // Early-out when the chunk is entirely above any possible terrain column.
-    const int maxPossibleTop = BASE_HEIGHT + HILL_AMP + MOUNT_AMP + CONT_AMP;
+    constexpr int maxPossibleTop = static_cast<int>(
+        (BASE_HEIGHT_M + HILL_AMP_M + MOUNT_AMP_M + CONT_AMP_M) / VOXEL_SIZE);
     if (chunkMinY > std::max(maxPossibleTop, SEA_LEVEL)) {
         chunk->setDirty(true);
         return;
     }
 
     auto computeHeight = [&](int worldX, int worldZ) -> int {
+        const float x = worldX * VOXEL_SIZE;
+        const float z = worldZ * VOXEL_SIZE;
         // Continental drift: [-1, 1].
-        float c = fbm2D(worldX * CONT_SCALE, worldZ * CONT_SCALE, 4) * 2.0f - 1.0f;
+        float c = fbm2D(x * CONT_SCALE, z * CONT_SCALE, 4) * 2.0f - 1.0f;
         // Rolling hills: [0, 1].
-        float h = fbm2D(worldX * HILL_SCALE + 17.3f, worldZ * HILL_SCALE + 41.1f, 4);
+        float h = fbm2D(x * HILL_SCALE + 17.3f, z * HILL_SCALE + 41.1f, 4);
         // Mountains: gated by the continental value so oceans stay flat.
-        float m = fbm2D(worldX * MOUNT_SCALE + 123.0f, worldZ * MOUNT_SCALE + 77.0f, 5);
+        float m = fbm2D(x * MOUNT_SCALE + 123.0f, z * MOUNT_SCALE + 77.0f, 5);
         m = std::pow(m, 2.5f);
         float mountainMask = std::max(0.0f, c - 0.1f) * 1.3f;
         if (mountainMask > 1.0f) mountainMask = 1.0f;
 
-        float height = BASE_HEIGHT
-                     + c * CONT_AMP
-                     + h * HILL_AMP
-                     + m * mountainMask * MOUNT_AMP;
-        return static_cast<int>(height);
+        float height = BASE_HEIGHT_M
+                     + c * CONT_AMP_M
+                     + h * HILL_AMP_M
+                     + m * mountainMask * MOUNT_AMP_M;
+        return static_cast<int>(height / VOXEL_SIZE);
     };
 
     for (int cz = 0; cz < CHUNK_SIZE; ++cz) {
@@ -180,13 +188,13 @@ void World::generateChunkData(Chunk* chunk) {
                 int worldY = chunkMinY + cy;
                 VoxelType type = VoxelTypes::AIR;
 
-                if (worldY < terrainHeight - 4) {
+                if (worldY < terrainHeight - DIRT_DEPTH) {
                     type = VoxelTypes::STONE;
                 } else if (worldY < terrainHeight - 1) {
                     type = VoxelTypes::DIRT;
                 } else if (worldY < terrainHeight) {
                     // Top layer: sand on beaches/underwater, grass otherwise.
-                    type = (underwater || worldY <= SEA_LEVEL + 1)
+                    type = (underwater || worldY <= SEA_LEVEL + BEACH)
                          ? VoxelTypes::SAND
                          : VoxelTypes::GRASS;
                 } else if (worldY < SEA_LEVEL && underwater) {

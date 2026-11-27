@@ -17,7 +17,7 @@ void MainMenuState::createUI() {
 
     // "New Game" button (centred, upper half).
     auto newGameBtn = std::make_unique<UIButton>(
-        glm::vec2(0.3f, 0.38f),
+        glm::vec2(0.3f, 0.30f),
         glm::vec2(0.4f, 0.12f),
         "New Game",
         glm::vec4(0.2f, 0.8f, 0.2f, 1.0f),  // normal
@@ -32,9 +32,23 @@ void MainMenuState::createUI() {
     m_newGameButton = newGameBtn.get();
     m_menuPanel->addChild(std::move(newGameBtn));
     
+    auto settingsBtn = std::make_unique<UIButton>(
+        glm::vec2(0.3f, 0.46f),
+        glm::vec2(0.4f, 0.12f),
+        "Settings",
+        glm::vec4(0.25f, 0.35f, 0.70f, 1.0f),
+        glm::vec4(0.35f, 0.47f, 0.90f, 1.0f),
+        glm::vec4(0.15f, 0.25f, 0.50f, 1.0f)
+    );
+    settingsBtn->setOnClick([this]() {
+        m_nextState = GameState::SETTINGS;
+        m_shouldChangeState = true;
+    });
+    m_menuPanel->addChild(std::move(settingsBtn));
+
     // "Exit" button (centred, lower half).
     auto exitBtn = std::make_unique<UIButton>(
-        glm::vec2(0.3f, 0.54f),
+        glm::vec2(0.3f, 0.62f),
         glm::vec2(0.4f, 0.12f),
         "Exit",
         glm::vec4(0.8f, 0.2f, 0.2f, 1.0f),  // normal
@@ -50,7 +64,7 @@ void MainMenuState::createUI() {
     m_exitButton = exitBtn.get();
     m_menuPanel->addChild(std::move(exitBtn));
     
-    std::cout << "[MainMenu] UI created: 2 centered buttons (New Game, Exit)" << std::endl;
+    std::cout << "[MainMenu] UI created: New Game, Settings, Exit" << std::endl;
 }
 
 void MainMenuState::onEnter() {

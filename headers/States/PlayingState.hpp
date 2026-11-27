@@ -27,6 +27,8 @@ private:
     UILabel* m_debugChunks = nullptr;
     bool m_debugVisible = false;
 
+    void updateCamera(float deltaTime);
+
 public:
     PlayingState(Engine* engine);
     ~PlayingState() override = default;
