@@ -2,7 +2,6 @@
 #include "World/World.hpp"
 #include "utils/BitUtils.hpp"
 #include "utils/Profiler.hpp"
-#include <cstring>
 #include <cstdint>
 #include <cmath>
 #include <array>
@@ -10,7 +9,6 @@
 
 Chunk::Chunk(const glm::ivec3& position) 
     : m_position(position) {
-    std::memset(m_voxels.data(), VoxelTypes::AIR, CHUNK_VOLUME);
 }
 
 glm::ivec3 Chunk::worldToChunkCoord(const glm::ivec3& worldBlock) {
@@ -33,17 +31,22 @@ glm::ivec3 Chunk::worldToChunkCoord(const glm::vec3& worldPos) {
 }
 
 VoxelType Chunk::getVoxel(int x, int y, int z) const {
-    if (!isInBounds(x, y, z)) {
+    if (!m_voxels || !isInBounds(x, y, z)) {
         return VoxelTypes::AIR;
     }
-    return m_voxels[getIndex(x, y, z)];
+    return (*m_voxels)[getIndex(x, y, z)];
 }
 
 void Chunk::setVoxel(int x, int y, int z, VoxelType type) {
     if (!isInBounds(x, y, z)) {
         return;
     }
-    VoxelType& slot = m_voxels[getIndex(x, y, z)];
+    if (!m_voxels) {
+        if (type == VoxelTypes::AIR) return;
+        m_voxels = std::make_unique<std::array<VoxelType, CHUNK_VOLUME>>();
+        m_voxels->fill(VoxelTypes::AIR);
+    }
+    VoxelType& slot = (*m_voxels)[getIndex(x, y, z)];
     if (slot == type) return;
     countVoxel(slot, -1);
     countVoxel(type, +1);
@@ -326,19 +329,20 @@ void Chunk::generateMesh(const World* world) {
     }
 
     MeshScratch& s = scratch();
-    buildColumns(m_voxels, s, m_waterCount > 0);
+    const auto& voxels = *m_voxels;  // non-null: the counts above are non-zero
+    buildColumns(voxels, s, m_waterCount > 0);
 
     // Solid pass: opaque blocks hidden only by opaque neighbours.
     if (m_opaqueCount > 0) {
         ZoneScopedN("Mesh solid");
-        meshPass(m_voxels, chunkOrigin, m_vertices, m_indices, neighbors, s.opaque, s.opaque, s,
+        meshPass(voxels, chunkOrigin, m_vertices, m_indices, neighbors, s.opaque, s.opaque, s,
                  [](VoxelType t) { return isVoxelOpaque(t); });
     }
 
     // Water pass: faces culled by opaque blocks and other water, so only the outer shell is emitted.
     if (m_waterCount > 0) {
         ZoneScopedN("Mesh water");
-        meshPass(m_voxels, chunkOrigin, m_waterVertices, m_waterIndices, neighbors, s.water, s.solid, s,
+        meshPass(voxels, chunkOrigin, m_waterVertices, m_waterIndices, neighbors, s.water, s.solid, s,
                  [](VoxelType t) { return isVoxelSolid(t); });
     }
 }

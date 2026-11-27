@@ -2,6 +2,7 @@
 
 #include "World/Voxel.hpp"
 #include <array>
+#include <memory>
 #include <vector>
 #include <glm/glm.hpp>
 
@@ -21,7 +22,8 @@ struct VoxelVertex {
 class Chunk {
 private:
     glm::ivec3 m_position;  // chunk coordinate (not block coordinate).
-    std::array<VoxelType, CHUNK_VOLUME> m_voxels;
+    // Allocated on the first non-air voxel; all-air chunks (most of the sky) cost nothing.
+    std::unique_ptr<std::array<VoxelType, CHUNK_VOLUME>> m_voxels;
 
     bool m_isDirty = true;  // mesh must be rebuilt before the next draw.
     int m_opaqueCount = 0;

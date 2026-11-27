@@ -6,7 +6,9 @@
 #include "UI/UIButton.hpp"
 #include "UI/UILabel.hpp"
 #include <array>
+#include <functional>
 #include <memory>
+#include <string>
 
 // Settings screen reachable from the main menu and the pause menu; changes apply immediately.
 class SettingsState : public IGameState {
@@ -19,6 +21,7 @@ private:
     std::unique_ptr<UIPanel> m_panel;
     UILabel* m_distanceValue = nullptr;
     UILabel* m_fpsValue = nullptr;
+    UILabel* m_speedValue = nullptr;
     UIButton* m_vsyncButton = nullptr;
     std::array<UIButton*, Config::KEY_ACTION_COUNT> m_keyButtons{};
 
@@ -28,6 +31,9 @@ private:
     void refreshLabels();
     void stepRenderDistance(int delta);
     void stepFpsLimit(int delta);
+    void stepSpeed(int delta);
+    // "Name  [<] value [>]" row; returns the value label.
+    UILabel* addStepper(float x, float y, const std::string& name, std::function<void(int)> onStep);
     void bindKey(int key);
     void goBack();
 

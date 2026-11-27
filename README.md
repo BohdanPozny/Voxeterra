@@ -10,7 +10,7 @@ Linux, Windows, and macOS (via MoltenVK).
 - Streaming chunk loader around the camera
 - TTF font atlas + text rendering
 - Simple state machine (main menu, playing, paused, settings)
-- Settings screen: view distance, FPS limit, VSync, key bindings
+- Settings screen: view distance, FPS limit, VSync, movement speed, key bindings
 - JSON-backed user configuration
 
 ## Dependencies
@@ -99,8 +99,11 @@ looks around. Esc opens the pause menu, F3 toggles the debug overlay.
 missing, a file with default values is written there. The Settings screen
 (main menu or pause menu) edits it and applies changes immediately:
 
-- **View distance**: 2..16 chunks; a chunk is 64³ voxels, i.e. 6.4 m.
+- **View distance**: 2 chunks and up, no upper limit; a chunk is 64³ voxels,
+  i.e. 6.4 m. Steps by 1 up to 16, then by 4. Memory grows with the square of
+  the distance (~260 KB per non-empty chunk, 4 chunks per column).
 - **FPS limit**: Unlimited or 30..240 (`fpsLimit`, 0 = unlimited).
+- **Speed**: camera movement speed, 1..200 m/s (`movementSpeed`).
 - **VSync**: FIFO when on, mailbox/immediate when off.
 - **Keys**: click a binding, then press a key (Esc cancels). Binding a key
   that is already used swaps the two actions. Stored as GLFW key codes in

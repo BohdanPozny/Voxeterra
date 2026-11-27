@@ -4,11 +4,13 @@
 #include <GLFW/glfw3.h>
 #include <algorithm>
 #include <cmath>
-#include <iterator>
+#include <iomanip>
+#include <sstream>
 #include <string>
 
 namespace {
 constexpr int kFpsOptions[] = {0, 30, 60, 90, 120, 144, 165, 240};  // 0 = unlimited
+constexpr int kSpeedOptions[] = {1, 2, 5, 10, 20, 50, 100, 200};    // m/s
 constexpr const char* kActionLabels[Config::KEY_ACTION_COUNT] = {
     "Forward", "Back", "Left", "Right", "Up", "Down"};
 
@@ -19,6 +21,17 @@ const glm::vec4 kButtonPressed(0.16f, 0.17f, 0.22f, 1.0f);
 constexpr float kRowTop    = 0.30f;
 constexpr float kRowStep   = 0.085f;
 constexpr float kRowHeight = 0.065f;
+
+// Steps through a sorted option list; a hand-edited value snaps to the nearest option first.
+template <std::size_t N>
+int stepOption(const int (&options)[N], float current, int delta) {
+    std::size_t index = 0;
+    for (std::size_t i = 1; i < N; ++i) {
+        if (std::abs(options[i] - current) < std::abs(options[index] - current)) index = i;
+    }
+    const int next = std::clamp(static_cast<int>(index) + delta, 0, static_cast<int>(N) - 1);
+    return options[next];
+}
 
 std::unique_ptr<UIButton> makeButton(float x, float y, float w, const std::string& text) {
     return std::make_unique<UIButton>(glm::vec2(x, y), glm::vec2(w, kRowHeight), text,
@@ -49,30 +62,8 @@ void SettingsState::createUI() {
     const float gx = 0.06f;
     m_panel->addChild(makeLabel(gx, kRowTop - kRowStep, 0.40f, "Graphics"));
 
-    m_panel->addChild(makeLabel(gx, kRowTop, 0.18f, "View distance"));
-    auto distDown = makeButton(gx + 0.19f, kRowTop, 0.04f, "<");
-    distDown->setOnClick([this]() { stepRenderDistance(-1); });
-    m_panel->addChild(std::move(distDown));
-    auto distValue = makeLabel(gx + 0.23f, kRowTop, 0.14f, "");
-    distValue->setCentered(true);
-    m_distanceValue = distValue.get();
-    m_panel->addChild(std::move(distValue));
-    auto distUp = makeButton(gx + 0.37f, kRowTop, 0.04f, ">");
-    distUp->setOnClick([this]() { stepRenderDistance(1); });
-    m_panel->addChild(std::move(distUp));
-
-    const float fpsY = kRowTop + kRowStep;
-    m_panel->addChild(makeLabel(gx, fpsY, 0.18f, "FPS limit"));
-    auto fpsDown = makeButton(gx + 0.19f, fpsY, 0.04f, "<");
-    fpsDown->setOnClick([this]() { stepFpsLimit(-1); });
-    m_panel->addChild(std::move(fpsDown));
-    auto fpsValue = makeLabel(gx + 0.23f, fpsY, 0.14f, "");
-    fpsValue->setCentered(true);
-    m_fpsValue = fpsValue.get();
-    m_panel->addChild(std::move(fpsValue));
-    auto fpsUp = makeButton(gx + 0.37f, fpsY, 0.04f, ">");
-    fpsUp->setOnClick([this]() { stepFpsLimit(1); });
-    m_panel->addChild(std::move(fpsUp));
+    m_distanceValue = addStepper(gx, kRowTop, "View distance", [this](int d) { stepRenderDistance(d); });
+    m_fpsValue = addStepper(gx, kRowTop + kRowStep, "FPS limit", [this](int d) { stepFpsLimit(d); });
 
     const float vsyncY = kRowTop + 2.0f * kRowStep;
     m_panel->addChild(makeLabel(gx, vsyncY, 0.18f, "VSync"));
@@ -86,6 +77,10 @@ void SettingsState::createUI() {
     });
     m_vsyncButton = vsync.get();
     m_panel->addChild(std::move(vsync));
+
+    const float moveY = kRowTop + 4.0f * kRowStep;
+    m_panel->addChild(makeLabel(gx, moveY - kRowStep, 0.40f, "Movement"));
+    m_speedValue = addStepper(gx, moveY, "Speed", [this](int d) { stepSpeed(d); });
 
     // Controls column.
     const float cx = 0.54f;
@@ -110,6 +105,22 @@ void SettingsState::createUI() {
     m_panel->addChild(std::move(back));
 }
 
+UILabel* SettingsState::addStepper(float x, float y, const std::string& name,
+                                   std::function<void(int)> onStep) {
+    m_panel->addChild(makeLabel(x, y, 0.18f, name));
+    auto down = makeButton(x + 0.19f, y, 0.04f, "<");
+    down->setOnClick([onStep]() { onStep(-1); });
+    m_panel->addChild(std::move(down));
+    auto value = makeLabel(x + 0.23f, y, 0.14f, "");
+    value->setCentered(true);
+    UILabel* valuePtr = value.get();
+    m_panel->addChild(std::move(value));
+    auto up = makeButton(x + 0.37f, y, 0.04f, ">");
+    up->setOnClick([onStep]() { onStep(1); });
+    m_panel->addChild(std::move(up));
+    return valuePtr;
+}
+
 void SettingsState::refreshLabels() {
     const Config& config = m_engine->getConfig();
 
@@ -122,6 +133,10 @@ void SettingsState::refreshLabels() {
 
     m_vsyncButton->setText(config.isVsync() ? "On" : "Off");
 
+    std::ostringstream speed;
+    speed << std::setprecision(3) << config.getMovementSpeed() << " m/s";
+    m_speedValue->setText(speed.str());
+
     for (std::size_t i = 0; i < Config::KEY_ACTION_COUNT; ++i) {
         m_keyButtons[i]->setText(static_cast<int>(i) == m_waitingAction
             ? "Press a key..."
@@ -131,25 +146,25 @@ void SettingsState::refreshLabels() {
 
 void SettingsState::stepRenderDistance(int delta) {
     Config& config = m_engine->getConfig();
-    config.setRenderDistance(config.getRenderDistance() + delta);
+    // Fine steps up to 16 chunks, coarser beyond; there is no upper limit.
+    const int distance = config.getRenderDistance();
+    const int step = (delta > 0 ? distance >= 16 : distance > 16) ? 4 : 1;
+    config.setRenderDistance(distance + delta * step);
     config.save();
     refreshLabels();
 }
 
 void SettingsState::stepFpsLimit(int delta) {
     Config& config = m_engine->getConfig();
-    const int count = static_cast<int>(std::size(kFpsOptions));
+    config.setFpsLimit(stepOption(kFpsOptions, static_cast<float>(config.getFpsLimit()), delta));
+    config.save();
+    refreshLabels();
+}
 
-    // A hand-edited value snaps to the nearest option before stepping.
-    int index = 0;
-    for (int i = 1; i < count; ++i) {
-        if (std::abs(kFpsOptions[i] - config.getFpsLimit()) < std::abs(kFpsOptions[index] - config.getFpsLimit())) {
-            index = i;
-        }
-    }
-    index = std::clamp(index + delta, 0, count - 1);
-
-    config.setFpsLimit(kFpsOptions[index]);
+void SettingsState::stepSpeed(int delta) {
+    Config& config = m_engine->getConfig();
+    config.setMovementSpeed(static_cast<float>(stepOption(kSpeedOptions, config.getMovementSpeed(), delta)));
+    m_engine->getCamera().setMovementSpeed(config.getMovementSpeed());
     config.save();
     refreshLabels();
 }

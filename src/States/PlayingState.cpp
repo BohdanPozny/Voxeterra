@@ -1,6 +1,7 @@
 #include "States/PlayingState.hpp"
 #include "World/Chunk.hpp"
 #include <GLFW/glfw3.h>
+#include <algorithm>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -89,10 +90,11 @@ void PlayingState::update(float deltaTime) {
 
     updateCamera(deltaTime);
 
-    // Stream chunks in/out around the camera.
-    m_engine->getWorldRenderer().updateStreaming(
-        m_engine->getCamera().getPosition(),
-        m_engine->getConfig().getRenderDistance());
+    // Stream chunks in/out around the camera; the far plane must cover the loaded disc.
+    const int renderDistance = m_engine->getConfig().getRenderDistance();
+    m_engine->getCamera().setFarPlane(
+        std::max(100.0f, (renderDistance + 2) * CHUNK_SIZE * VOXEL_SIZE * 1.5f));
+    m_engine->getWorldRenderer().updateStreaming(m_engine->getCamera().getPosition(), renderDistance);
 
     // HUD update.
     if (m_hudPanel) {

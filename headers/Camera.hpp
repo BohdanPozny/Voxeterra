@@ -34,6 +34,7 @@ public:
     
     void setAspectRatio(float aspectRatio) { m_aspectRatio = aspectRatio; }
     void setFOV(float fov) { m_fov = fov; }
+    void setFarPlane(float farPlane) { m_farPlane = farPlane; }
     void setMouseSensitivity(float sensitivity) { m_mouseSensitivity = sensitivity; }
     void setMovementSpeed(float speed) { m_movementSpeed = speed; }
 

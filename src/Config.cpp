@@ -69,8 +69,7 @@ bool Config::load() {
             if (ui.contains("fontSize")) m_uiFontSize = ui["fontSize"];
         }
 
-        // Each chunk is 64^3 blocks; beyond this radius RAM and GPU allocation counts explode.
-        m_renderDistance = std::clamp(m_renderDistance, MIN_RENDER_DISTANCE, MAX_RENDER_DISTANCE);
+        setRenderDistance(m_renderDistance);
 
         std::cout << "[Config] Loaded from: " << m_configPath << std::endl;
         return true;

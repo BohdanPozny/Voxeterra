@@ -10,7 +10,6 @@ enum class KeyAction { Forward, Back, Left, Right, Up, Down, Count };
 class Config {
 public:
     static constexpr int MIN_RENDER_DISTANCE = 2;
-    static constexpr int MAX_RENDER_DISTANCE = 16;
     static constexpr std::size_t KEY_ACTION_COUNT = static_cast<std::size_t>(KeyAction::Count);
 
 private:
@@ -59,7 +58,7 @@ public:
     void setFullscreen(bool fullscreen) { m_fullscreen = fullscreen; }
     void setVsync(bool vsync) { m_vsync = vsync; }
     void setRenderDistance(int distance) {
-        m_renderDistance = std::clamp(distance, MIN_RENDER_DISTANCE, MAX_RENDER_DISTANCE);
+        m_renderDistance = std::max(distance, MIN_RENDER_DISTANCE);
     }
     void setFpsLimit(int limit) { m_fpsLimit = std::max(limit, 0); }
     void setFOV(float fov) { m_fov = fov; }
